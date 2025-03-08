@@ -24,6 +24,9 @@ Entity entity_createEntity(){
     int animsCount = 2;
 	Model model = LoadModel("../res/models/person/disgiuy.m3d");
 	
+	printf("ENTITY SHADER ID - %i\n", model.materials[0].shader.id);
+	
+	
     bool validModel =  IsModelValid(model); 
 	if(!validModel){	
 		printf("CRITICAL: INVALID MODEL");
@@ -59,6 +62,13 @@ Entity entity_createEntity(){
 	entity_moveEntity(&e,e.position);
 	
 	return e;
+}
+
+void entity_updateEntityShader(Entity* e, Shader shader){
+	Model model = e->model;
+	for (int i = 0; i < model.materialCount; i++) {
+		model.materials[i].shader = shader;
+	}
 }
 
 void entity_DrawEntity(Entity e){

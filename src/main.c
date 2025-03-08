@@ -9,7 +9,7 @@
 #include "pathmanager.h"
 #include "bullet.h"
 #include "gamemaster.h"
-
+#include "rllight.h"
 
 
 
@@ -70,12 +70,72 @@ int main(void)
 	bool moving = false;
 	
 	Image groundMap  = LoadImage("../res/images/groundMap.png");
-	Mesh ground = GenMeshHeightmap(groundMap, (Vector3){100.0f,1.0f,100.0f});
 	
-    Material groundMat =  LoadMaterialDefault();  
-	Texture2D texture = LoadTexture("../res/textures/grass.png"); // Load model texture
-	SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);
-	groundMat.maps[0].texture = texture;
+	int mapSize = 2040;
+	int mapHeight = 500;
+	
+	Mesh ground = GenMeshHeightmap(groundMap, (Vector3){mapSize, mapHeight, mapSize});
+	
+    float* newTexCoords = (float *)RL_MALLOC(ground.vertexCount * 2 * sizeof(float));
+    for (int i = 0; i < ground.vertexCount; i++) {
+        newTexCoords[i * 2] = ground.vertices[i * 3];
+        newTexCoords[i * 2 + 1] = ground.vertices[i * 3 + 2];
+    }
+	    
+	UpdateMeshBuffer(ground, 1, newTexCoords, ground.vertexCount * 2 * sizeof(float), 0);
+
+	printf("TEX_SIZE=%i",sizeof(ground.texcoords)/sizeof(float));
+	
+	int tcI = ground.vertexCount * 2;
+	
+	for(int i = 0; i < 100; i++){
+		printf("tCord: %f\n",ground.texcoords[i]);
+	}
+	
+	
+	
+	
+    // Load basic lighting shader
+    Shader shader = LoadShader(TextFormat("../res/shaders/lighting.vs"), TextFormat("../res/shaders/lighting.fs"));
+	
+	printf("LIGHT SHADER ID - %i\n", shader.id);
+    // Get some required shader locations
+    shader.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(shader, "viewPos");
+    // NOTE: "matModel" location name is automatically assigned on shader loading, 
+    // no need to get the location again if using that uniform name
+    //shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(shader, "matModel");
+    
+    // Ambient light level (some basic lighting)
+
+	
+    int ambientLoc = GetShaderLocation(shader, "ambient");
+    SetShaderValue(shader, ambientLoc, (float[4]){ 0,0,0, 1.0f }, SHADER_UNIFORM_VEC4);
+
+    // Create lights
+    Light lights[4] = { 0 };
+    lights[0] = CreateLight(LIGHT_POINT, (Vector3){ -2, 5, -2 }, Vector3Zero(), WHITE, shader);
+    // lights[1] = CreateLight(LIGHT_POINT, (Vector3){ 2, 5, 2 }, Vector3Zero(), RED, shader);
+    // lights[2] = CreateLight(LIGHT_POINT, (Vector3){ -2, 5, 2 }, Vector3Zero(), GREEN, shader);
+    // lights[3] = CreateLight(LIGHT_POINT, (Vector3){ 2, 5, -2 }, Vector3Zero(), BLUE, shader);
+	
+	
+	
+	for(unsigned int i = 0; i < entityCount; i++){
+		entity_updateEntityShader(entities[i], shader);
+	}
+	
+	
+	
+	Model gModel = LoadModelFromMesh(ground);
+	
+	gModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = LoadTexture("../res/textures/grass.png"); // Set map diffuse texture
+	gModel.materials[0].shader = shader;
+
+	
+    // Material groundMat =  LoadMaterialDefault();  
+	// Texture2D texture = LoadTexture("../res/textures/grass.png"); // Load model texture
+	// SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);
+	// groundMat.maps[0].texture = texture;
 	
 	InitAudioDevice();
 	Wave gunFile = LoadWave("../res/audio/shot.wav");
@@ -88,6 +148,8 @@ int main(void)
 	
 	
 	Model gon = LoadModel("../res/models/gon.m3d");
+	
+	printf("MATS- %i\n",gon.materialCount);
 	
     // Main game loop
     while (!WindowShouldClose())        // Detect window close button or ESC key
@@ -104,6 +166,12 @@ int main(void)
 		   IsKeyDown(KEY_D)){
 		   
 		   moving = true;   
+	   }
+	   if(IsKeyDown(KEY_Q)){
+		   camera.position.y+=3.0f;
+	   }
+	   if(IsKeyDown(KEY_E)){
+		   camera.position.y-=3.0f;
 	   }
 	   if(IsKeyPressed(KEY_ONE)){
 		   gamemaster_moveTest(entities, 0, entities[entityCount-1].position);
@@ -128,7 +196,9 @@ int main(void)
 		BeginDrawing();
 		ClearBackground(SKYBLUE);
 		BeginMode3D(camera);
-		DrawPlane((Vector3){ 0.0f, 0.0f, 0.0f }, (Vector2){ 128.0f, 128.0f }, DARKGREEN); // Draw ground
+		
+		BeginShaderMode(shader);
+		// DrawPlane((Vector3){ 0.0f, 0.0f, 0.0f }, (Vector2){ 128.0f, 128.0f }, WHITE); // Draw ground
 		
 		// entities[2].model.bindPose[6].rotation
 		// DrawLine3D((Vector3){0,0,0}, entities[0].anims[entities[0].animIndex].framePoses[entities[0].animFrame][6].translation, RED);
@@ -169,9 +239,9 @@ int main(void)
 			if(CheckCollisionBoxes(testaabb, entities[i].aabb) && entities[i].alive){
 				entity_setEntityTarget(&entities[0], entities[i].position);
 			}
-			
-			DrawModelWiresEx(entities[i].model, (Vector3){0,0,0}, (Vector3){0,1.0f,0},0,(Vector3){1.0,1.0f,1.0f},WHITE);
-			// DrawModelEx(entities[i].model, (Vector3){0,0,0}, (Vector3){0,1.0f,0},0,(Vector3){1.0,1.0f,1.0f},WHITE);
+			 
+			// DrawModelWiresEx(entities[i].model, (Vector3){0,0,0}, (Vector3){0,1.0f,0},0,(Vector3){1.0,1.0f,1.0f},WHITE);
+				DrawModelEx(entities[i].model, (Vector3){0,0,0}, (Vector3){0,1.0f,0},0,(Vector3){1.0,1.0f,1.0f},WHITE);
 		}
 		
 		for (unsigned int i = 0; i < bulletCacheAmount; i++){
@@ -179,7 +249,8 @@ int main(void)
 			bullets[i].ray.position = Vector3Add(bullets[i].ray.position,Vector3Add(Vector3Scale(bullets[i].ray.direction,bullets[i].velocity),(Vector3){0,-.001,0}));
 			// DrawRay(bulletCache[i].ray, RED);
 		}
-		//DrawMesh(ground,groundMat,MatrixIdentity());   
+		// DrawMesh(ground,groundMat,MatrixIdentity());   
+		DrawModel(gModel, (Vector3){-(mapSize/2),-mapHeight/2,-(mapSize/2)}, 1.0f, WHITE);
 		if(IsMouseButtonDown(MOUSE_BUTTON_LEFT)){
 			shootPlayerFrame++;
 			if(shootPlayerFrame >5){
@@ -224,6 +295,8 @@ int main(void)
 			
 			// Vector3 gunpos = Vector3Add(entities[2].anims[entities[2].animIndex].framePoses[entities[2].animFrame][6].translation, entities[2].position);
 			// DrawModelEx(gon, gunpos, (Vector3){0,1.0f,0},-90.0f,(Vector3){1.0,1.0f,1.0f},WHITE);
+		
+		EndShaderMode();
 		EndMode3D();
 
 

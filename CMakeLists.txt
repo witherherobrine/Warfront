@@ -18,6 +18,7 @@ add_executable(${PROJECT_NAME}
 	src/pathmanager.c
 	src/bullet.h	
 	src/bullet.c
+	src/rllight.h
 )
 
 target_link_libraries(${PROJECT_NAME} 

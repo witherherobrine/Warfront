@@ -31,6 +31,7 @@ typedef struct Entity{
 } Entity;
 
 Entity entity_createEntity();
+void entity_updateEntityShader();
 void entity_DrawEntity(Entity e);
 void entity_updateEntity(Entity* e);
 void entity_moveEntity(Entity* e, Vector3 pos);
