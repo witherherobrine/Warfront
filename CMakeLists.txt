@@ -6,6 +6,18 @@ project(Warfront)
 
 add_executable(${PROJECT_NAME} 
 	src/main.c
+	src/block.h
+	src/block.c	
+	src/entity.h		
+	src/entity.c		
+	src/entitynode.h		
+	src/entitynode.c	
+	src/gamemaster.h		
+	src/gamemaster.c		
+	src/pathmanager.h	
+	src/pathmanager.c
+	src/bullet.h	
+	src/bullet.c
 )
 
 target_link_libraries(${PROJECT_NAME} 
@@ -13,7 +25,6 @@ target_link_libraries(${PROJECT_NAME}
 )
 include_directories(external)
 add_subdirectory(external/raylib)
-# add_subdirectory(external/cglm/ EXCLUDE_FROM_ALL)
 
 target_include_directories(${PROJECT_NAME}
 	PUBLIC external/raylib/bin/raylib/include
