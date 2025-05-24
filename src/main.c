@@ -10,8 +10,18 @@
 #include "bullet.h"
 #include "gamemaster.h"
 #include "rllight.h"
+#include "terrain.h"
+#include "worldobject.h"
 
 
+
+extern int bulletCacheAmount;
+extern Bullet* bullets[];
+extern BoundingBox testaabb;
+
+Color* pixels;
+int MAP_WIDTH;
+int MAP_HEIGHT;
 
 
 
@@ -21,7 +31,6 @@ int main(void)
     //--------------------------------------------------------------------------------------
     const int screenWidth = GetScreenWidth();
     const int screenHeight = GetScreenHeight();
-	printf("%i",screenHeight);
     InitWindow(screenWidth, screenHeight, "Warfront");
     // InitWindow(720, 540, "Warfront");
 	// ToggleFullscreen();
@@ -34,6 +43,7 @@ int main(void)
     camera.projection = CAMERA_PERSPECTIVE;             // Camera projection type
 
     int cameraMode = CAMERA_FIRST_PERSON;
+
 	
     DisableCursor();                    // Limit cursor to relative movement inside the window
     SetTargetFPS(60);                   // Set our game to run at 60 frames-per-second
@@ -41,89 +51,84 @@ int main(void)
 
 
 	int entityCount = 10;
-    Entity entities[entityCount];
 
-	extern int bulletCacheAmount;
-	extern Bullet bullets[];
-	extern int bulletFireIndex;
-	
-	extern BoundingBox testaabb;
 
 	// Model model = 
 	// Model model = LoadModel("../res/models/JasperCarmack_Community_SRC.iqm");
 	// Texture2D texture = LoadTexture("../res/models/T_Jasper_Masc_BaseColor.png"); // Load model texture
     // model.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = texture;  
+
 	
-	for(unsigned int i = 0; i < entityCount; i++){
-		entities[i] = entity_createEntity();
-		entities[i].id = i;
-		if(i == entityCount-1){
-			entities[i].player = true;
-		}
+	for(unsigned int i =0; i < 10; i++){
+		worldobject_generateEntity(i==0, (Vector3){(float)GetRandomValue(-15, 15)/0.5f,2.3f,(float)GetRandomValue(-15, 15)/0.5f});
+	}
+	int currentArrSize = worldObjects.count;
+	for(unsigned int i =0; i < bulletCacheAmount; i++){
+		worldobject_generateBullet();
+		WorldObject* wo = worldObjects.data[currentArrSize + i];
+		Bullet *genBullet = (Bullet *)wo->data;
+		bullets[i] = genBullet;
 	}
 	
-	gamemaster_setupNodes(entities, entityCount);
+	// gamemaster_setupNodes(entities, entityCount);
 	
-	// entities[2].position = (Vector3){2,0,0};
-	bullet_initBulletCache();
+	// bullet_initBulletCache();
 	
 	bool moving = false;
 	
-	Image groundMap  = LoadImage("../res/images/groundMap.png");
+	char* GROUND_PATH = "../res/images/groundMap3.jpg";
 	
-	int mapSize = 2040;
-	int mapHeight = 500;
-	
-	Mesh ground = GenMeshHeightmap(groundMap, (Vector3){mapSize, mapHeight, mapSize});
-	
-    float* newTexCoords = (float *)RL_MALLOC(ground.vertexCount * 2 * sizeof(float));
-    for (int i = 0; i < ground.vertexCount; i++) {
-        newTexCoords[i * 2] = ground.vertices[i * 3];
-        newTexCoords[i * 2 + 1] = ground.vertices[i * 3 + 2];
-    }
-	    
-	UpdateMeshBuffer(ground, 1, newTexCoords, ground.vertexCount * 2 * sizeof(float), 0);
-
-	printf("TEX_SIZE=%i",sizeof(ground.texcoords)/sizeof(float));
-	
-	int tcI = ground.vertexCount * 2;
-	
-	for(int i = 0; i < 100; i++){
-		printf("tCord: %f\n",ground.texcoords[i]);
-	}
-	
-	
-	
+	Mesh ground  = createTerrain(GROUND_PATH, 200, 50);
 	
     // Load basic lighting shader
     Shader shader = LoadShader(TextFormat("../res/shaders/lighting.vs"), TextFormat("../res/shaders/lighting.fs"));
+	bool valid = IsShaderValid(shader);
 	
-	printf("LIGHT SHADER ID - %i\n", shader.id);
+	if(!valid){
+		printf("ruh roh raggy");
+		exit(1);
+	}
+	
     // Get some required shader locations
     shader.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(shader, "viewPos");
     // NOTE: "matModel" location name is automatically assigned on shader loading, 
     // no need to get the location again if using that uniform name
-    //shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(shader, "matModel");
+    shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(shader, "matModel");
     
     // Ambient light level (some basic lighting)
 
 	
-    int ambientLoc = GetShaderLocation(shader, "ambient");
-    SetShaderValue(shader, ambientLoc, (float[4]){ 0,0,0, 1.0f }, SHADER_UNIFORM_VEC4);
+    // int ambientLoc = GetShaderLocation(shader, "ambient");
+    // SetShaderValue(shader, ambientLoc, (float[4]){ 0,0,0, 1.0f }, SHADER_UNIFORM_VEC4);
 
-    // Create lights
-    Light lights[4] = { 0 };
-    lights[0] = CreateLight(LIGHT_POINT, (Vector3){ -2, 5, -2 }, Vector3Zero(), WHITE, shader);
+    // Light lights[4] = { 0 };
+    // lights[0] = CreateLight(LIGHT_POINT, (Vector3){ -2, 5, -2 }, Vector3Zero(), WHITE, shader);
     // lights[1] = CreateLight(LIGHT_POINT, (Vector3){ 2, 5, 2 }, Vector3Zero(), RED, shader);
     // lights[2] = CreateLight(LIGHT_POINT, (Vector3){ -2, 5, 2 }, Vector3Zero(), GREEN, shader);
     // lights[3] = CreateLight(LIGHT_POINT, (Vector3){ 2, 5, -2 }, Vector3Zero(), BLUE, shader);
 	
 	
+	int ambientLoc = GetShaderLocation(shader, "ambientColor");
+	int lightDirLoc = GetShaderLocation(shader, "lightDir");
+	int lightColorLoc = GetShaderLocation(shader, "lightColor");
 	
-	for(unsigned int i = 0; i < entityCount; i++){
-		entity_updateEntityShader(entities[i], shader);
+	Vector3 ambientColor = { 0.1f, 0.1f, 0.1f }; // Example ambient color
+	Vector3 lightDir = { 0.707, -0.707, 0.0}; // Example light direction (down)
+	Vector3 lightColor = { 2.0f, 2.0f, 2.0f }; // Example light color (white)
+
+	SetShaderValue(shader, ambientLoc, &ambientColor, SHADER_UNIFORM_VEC3);
+	SetShaderValue(shader, lightDirLoc, &lightDir, SHADER_UNIFORM_VEC3);
+	SetShaderValue(shader, lightColorLoc, &lightColor, SHADER_UNIFORM_VEC3);
+
+	
+	for(int i = 0; i < worldObjects.count; i++){
+		WorldObject *currentWorldObject = (WorldObject *)worldObjects.data[i];
+		if(currentWorldObject->type == OBJECT_ENTITY){
+			Entity *entityData = (Entity *)currentWorldObject->data;			
+			entity_updateEntityShader(entityData, shader);
+			entityData->model.materials[1].maps[MATERIAL_MAP_DIFFUSE].texture = LoadTexture("../res/textures/brotex.png"); // Set map diffuse texture
+		}
 	}
-	
 	
 	
 	Model gModel = LoadModelFromMesh(ground);
@@ -148,17 +153,33 @@ int main(void)
 	
 	
 	Model gon = LoadModel("../res/models/gon.m3d");
+	for(unsigned int i = 0; i < gon.materialCount; i++){
+		gon.materials[i].shader = shader;
+	}
 	
-	printf("MATS- %i\n",gon.materialCount);
+	Model DEBUG_CUBE = LoadModel("../res/models/cubie.m3d");
+	for(unsigned int i = 0; i < DEBUG_CUBE.materialCount; i++){
+		DEBUG_CUBE.materials[i].shader = shader;
+	}
+	
+	
+	
+	float* vertTest = gModel.meshes[0].vertices;
+	
+	int vertIndex = 0;
+	int vertFrame = 0;
+	
+	
+    Image groundMap = LoadImage(GROUND_PATH);
+	MAP_WIDTH = groundMap.width;
+	MAP_HEIGHT = groundMap.height;
+	pixels = LoadImageColors(groundMap);
+	
+	int PLAYER_INDEX = 0;
 	
     // Main game loop
     while (!WindowShouldClose())        // Detect window close button or ESC key
     {
-        if (IsKeyPressed(KEY_ONE))
-        {
-            cameraMode = CAMERA_FIRST_PERSON;
-            camera.up = (Vector3){ 0.0f, 1.0f, 0.0f }; // Reset roll
-        }
 		moving = false;
 	   if (IsKeyDown(KEY_W) || 
 		   IsKeyDown(KEY_A) ||
@@ -168,134 +189,188 @@ int main(void)
 		   moving = true;   
 	   }
 	   if(IsKeyDown(KEY_Q)){
-		   camera.position.y+=3.0f;
+		   camera.position.y+=0.5f;
 	   }
 	   if(IsKeyDown(KEY_E)){
-		   camera.position.y-=3.0f;
+		   camera.position.y-=0.5f;
 	   }
-	   if(IsKeyPressed(KEY_ONE)){
-		   gamemaster_moveTest(entities, 0, entities[entityCount-1].position);
-	   }
-	   if(IsKeyPressed(KEY_TWO)){
-		   gamemaster_moveTest(entities, 1, entities[entityCount-1].position);
-	   }
+	   // if(IsKeyPressed(KEY_ONE)){
+		   // gamemaster_moveTest(entities, 0, entities[entityCount-1].position);
+	   // }
+	   // if(IsKeyPressed(KEY_TWO)){
+		   // gamemaster_moveTest(entities, 1, entities[entityCount-1].position);
+	   // }
+	   
+		float newDist = yPointXZTest((Vector3){200,50,200},camera.position.x, camera.position.z)+2;
+	   CameraMoveUp(&camera,newDist - camera.position.y);
 	   
 	   moveFrame++;
 	   if(moveFrame > 30){
 		   moveFrame = 0;
-		   float rotate = entities[0].rotation + 90.0f;
 			// bullet_fireBullet(entities[0].position, (Vector3){sin(rotate*(M_PI/180)),0,cos(rotate*(M_PI/180))},1.0f,0);
 			
 			
 			Vector3 qVec = (Vector3){(float)GetRandomValue(-50, 50),10.0f,(float)GetRandomValue(-50, 50)};
-			entity_queryBox(&entities[0],qVec);
+			// entity_queryBox(&entities[0],qVec);
 		   // path_manager_moveGroup(entities, 5);
 	   }
-	   
         UpdateCamera(&camera, cameraMode);                  // Update camera
 		BeginDrawing();
-		ClearBackground(SKYBLUE);
+		ClearBackground(LIGHTGRAY);
 		BeginMode3D(camera);
 		
-		BeginShaderMode(shader);
+		
+		// BeginShaderMode(shader);
+
 		// DrawPlane((Vector3){ 0.0f, 0.0f, 0.0f }, (Vector2){ 128.0f, 128.0f }, WHITE); // Draw ground
 		
 		// entities[2].model.bindPose[6].rotation
 		// DrawLine3D((Vector3){0,0,0}, entities[0].anims[entities[0].animIndex].framePoses[entities[0].animFrame][6].translation, RED);
-		entities[entityCount-1].position = Vector3Add(camera.position,(Vector3){0,-1.3,0});
+		// entities[PLAYER_INDEX].position = Vector3Add(camera.position,(Vector3){0,-1.3,0});
 		
-		// Draw player cube
-		if (cameraMode == CAMERA_THIRD_PERSON)
-		{
-			DrawCube(camera.target, 0.5f, 0.5f, 0.5f, PURPLE);
-			// DrawCubeWires(camera.target, 0.5f, 0.5f, 0.5f, DARKPURPLE);
+		// Vector3 ang = GetCameraForward(&camera);
+		// entities[PLAYER_INDEX].rotation = atan2f(ang.x,ang.z) - M_PI/2;
+		
+		
+		Vector3 lStart = (Vector3){0,20,0};
+		Vector3 lEnd = (Vector3){0};
+		lEnd = (Vector3){vertTest[vertIndex], vertTest[vertIndex+1], vertTest[vertIndex+2]};
+		// camera.position = lEnd;
+		
+		vertFrame++;
+		if(vertFrame > 15){
+			// printf("(%i,%i,%i)\n",(int)vertTest[vertIndex], (int)vertTest[vertIndex+1], (int)	vertTest[vertIndex+2]);
+			vertIndex+=3;
+			vertFrame = 0;
 		}
 		
 		
-		// float yaw = atan2f(forwardXZ.x, -forwardXZ.z);
-		// yaw = radiansToDegrees(yaw);
+		DrawLine3D(lStart, lEnd, WHITE);
 		
-		Vector3 ang = GetCameraForward(&camera);
-		entities[entityCount-1].rotation = atan2f(ang.x,ang.z) - M_PI/2;
-		
-		for (unsigned int i = 0; i < entityCount; i++){
-			entity_updateEntity(&entities[i]);
+		// for (unsigned int i = 0; i < entityCount; i++){
+			// entity_updateEntity(&entities[i]);
 				
-			for (unsigned int j = 0; j < bulletCacheAmount; j++){
-				if(!bullets[j].enabled){
+			// for (unsigned int j = 0; j < bulletCacheAmount; j++){
+				// if(!bullets[j].enabled){
+					// continue;
+				// }
+				
+				// bullet_updateBullet(&bullets[j]);
+				// RayCollision hit = GetRayCollisionBox(bullets[j].ray, entities[i].aabb);
+			
+				// if(entities[i].id != bullets[j].id && entities[i].alive && hit.hit && hit.distance <= bullets[j].velocity){
+					// entities[i].alive = false;
+					// entities[i].animFrame = 0;
+					// bullets[j].enabled = false;
+					// bullets[j].velocity = 0.0f;
+				// }
+			// }			
+			// if(CheckCollisionBoxes(testaabb, entities[i].aabb) && entities[i].alive){
+				// entity_setEntityTarget(&entities[0], entities[i].position);
+			// }
+		// }
+		for(int i = 0; i < worldObjects.count; i++){
+			
+			WorldObject *currentWorldObject = (WorldObject *)worldObjects.data[i];
+			
+			// DrawBoundingBox(currentWorldObject->aabb, RED);	
+	
+		
+			if(currentWorldObject->type == OBJECT_ENTITY){
+				Entity *entityData = (Entity *)currentWorldObject->data;	
+				worldobject_updateAABB_entity(&currentWorldObject->aabb, entityData);
+				if(i == PLAYER_INDEX){
+					entityData->position = Vector3Add(camera.position,(Vector3){0,-1.3,0});
+					Vector3 ang = GetCameraForward(&camera);
+					entityData->rotation = atan2f(ang.x,ang.z) - M_PI/2;
+				}
+				
+				if(!entityData->alive){
+					continue;
+				}
+
+				entity_updateEntity(entityData);
+				DrawModelEx(entityData->model, (Vector3){0,0,0}, (Vector3){0,1.0f,0},0,(Vector3){1.0,1.0f,1.0f},WHITE);
+			}
+			if(currentWorldObject->type == OBJECT_BULLET){
+				
+				Bullet *bulletData = (Bullet *)currentWorldObject->data;
+				worldobject_updateAABB_bullet(&currentWorldObject->aabb, bulletData);
+				
+				if(!bulletData->enabled){
 					continue;
 				}
 				
-				bullet_updateBullet(&bullets[j]);
-				RayCollision hit = GetRayCollisionBox(bullets[j].ray, entities[i].aabb);
-			
-				if(entities[i].id != bullets[j].id && entities[i].alive && hit.hit && hit.distance <= bullets[j].velocity){
-					entities[i].alive = false;
-					entities[i].animFrame = 0;
-					// bullets[j].enabled = false;
-					// bullets[j].velocity = 0.0f;
+				for (int j = 0; j < worldObjects.count; j++) {
+					WorldObject *wo2 = (WorldObject *)worldObjects.data[j];
+
+					// Ensure we're checking against an alive entity and not the bullet itself
+					if (wo2->type == OBJECT_ENTITY) {
+						Entity* entity = (Entity *)wo2->data;
+
+						// Perform AABB collision check
+						if (!entity->player && CheckCollisionBoxes(currentWorldObject->aabb, wo2->aabb)) {
+							// Collision detected!
+							
+							RayCollision hit = GetRayCollisionBox(bulletData->ray, wo2->aabb);
+						
+							if(hit.hit){
+								bulletData->enabled =false;	
+								entity->alive = false;
+							}
+							
+
+							// TraceLog(LOG_INFO, "Bullet %d hit Entity %d", bullet->id, entity->id);
+
+							// Handle the collision:
+							// entity->alive = false; // Example: mark entity as dead
+							// bullet->enabled = false; // Example: disable the bullet
+
+
+							// You might want to add more specific collision handling here,
+							// like applying damage, triggering effects, etc.
+
+							// Optionally, break out of the inner loop since the bullet hit something
+						}
+					}
 				}
-			}			
-			if(CheckCollisionBoxes(testaabb, entities[i].aabb) && entities[i].alive){
-				entity_setEntityTarget(&entities[0], entities[i].position);
+				bullet_updateBullet(bulletData);
+				
+				DrawLine3D(bulletData->ray.position, Vector3Add(bulletData->ray.position, Vector3Scale(bulletData->ray.direction, bulletData->velocity)), BLACK);
+				// bulletData->ray.position = Vector3Add(bulletData->ray.position,Vector3Add(Vector3Scale(bulletData->ray.direction,bulletData->velocity),(Vector3){0,-.001,0}));
 			}
-			 
-			// DrawModelWiresEx(entities[i].model, (Vector3){0,0,0}, (Vector3){0,1.0f,0},0,(Vector3){1.0,1.0f,1.0f},WHITE);
-				DrawModelEx(entities[i].model, (Vector3){0,0,0}, (Vector3){0,1.0f,0},0,(Vector3){1.0,1.0f,1.0f},WHITE);
 		}
 		
-		for (unsigned int i = 0; i < bulletCacheAmount; i++){
-			DrawLine3D(bullets[i].ray.position, Vector3Add(bullets[i].ray.position, Vector3Scale(bullets[i].ray.direction, bullets[i].velocity)), YELLOW);
-			bullets[i].ray.position = Vector3Add(bullets[i].ray.position,Vector3Add(Vector3Scale(bullets[i].ray.direction,bullets[i].velocity),(Vector3){0,-.001,0}));
-			// DrawRay(bulletCache[i].ray, RED);
-		}
-		// DrawMesh(ground,groundMat,MatrixIdentity());   
-		DrawModel(gModel, (Vector3){-(mapSize/2),-mapHeight/2,-(mapSize/2)}, 1.0f, WHITE);
+		DrawModel(gModel, (Vector3){0,0,0}, 1.0f, WHITE);
+		// 	DrawModelWires(gModel, (Vector3){0,0,0}, 1.0f, WHITE);
+
 		if(IsMouseButtonDown(MOUSE_BUTTON_LEFT)){
 			shootPlayerFrame++;
 			if(shootPlayerFrame >5){
 				shootPlayerFrame = 0;
+				
+				//i want values .9 -> 1.1
+				float ranV = (GetRandomValue(95, 105) / 100.0f);
+				printf("ranV:%f\n",ranV);
+				SetSoundPitch(gunSound, ranV);
+				// SetSoundPitch(gunSound, 0.03f);
+
 				PlaySound(gunSound);  
-				Vector3 pos = entities[entityCount-1].anims[entities[entityCount-1].animIndex].framePoses[entities[entityCount-1].animFrame][8].translation;
-				pos = Vector3Transform(pos,entities[entityCount-1].model.transform);
-				// pos = Vector3Add(pos, entities[entityCount-1].position);
 				
-				printf("pos: {%f, %f, %f}\n",pos.x, pos.y, pos.z);
+				WorldObject *currentWorldObject = (WorldObject *)worldObjects.data[PLAYER_INDEX];
+				Entity *entityData = (Entity *)currentWorldObject->data;
 				
-				bullet_fireBullet(pos, GetCameraForward(&camera), 10.0f, entities[entityCount-1].id);	
+				Vector3 pos = entityData->anims[entityData->animIndex].framePoses[entityData->animFrame][8].translation;
+				pos = Vector3Transform(pos,entityData->model.transform);
+				// Vector3 pos2 = (Vector3){0,0,0};
+				// printf("pos: {%f, %f, %f}\n",pos.x, pos.y, pos.z);
+				
+				bullet_fireBullet(camera.position,GetCameraForward(&camera), 20.0f, 0);	
 			}
 		}
-			DrawBoundingBox(testaabb, RED);
-			
-			
-			          // Transform *transform = &anim.framePoses[animCurrentFrame][boneSocketIndex[i]];
-                    // Quaternion inRotation = characterModel.bindPose[boneSocketIndex[i]].rotation;
-                    // Quaternion outRotation = transform->rotation;
-                    // Quaternion rotate = QuaternionMultiply(outRotation, QuaternionInvert(inRotation));
-                    // Matrix matrixTransform = QuaternionToMatrix(rotate);
-                    // matrixTransform = MatrixMultiply(matrixTransform, MatrixTranslate(transform->translation.x, transform->translation.y, transform->translation.z));
-                    // matrixTransform = MatrixMultiply(matrixTransform, characterModel.transform);
-                    // DrawMesh(equipModel[i].meshes[0], equipModel[i].materials[1], matrixTransform);
-			
-			
-			int entIndex = entityCount-1;
-			
-			Transform transform = entities[entIndex].anims[entities[entIndex].animIndex].framePoses[entities[entIndex].animFrame][8];
-			// transform.translation = Vector3Multiply(transform.translation, entities[2].position);
-			Quaternion inRotation = entities[entIndex].model.bindPose[6].rotation;
-			Quaternion outRotation = transform.rotation;
-			Quaternion rotate = QuaternionMultiply(outRotation, QuaternionInvert(inRotation));
-			// Matrix matrixTransform = QuaternionToMatrix(outRotation);
-			Matrix matrixTransform = MatrixRotate((Vector3){0,1,0},(float)(-90.f * (M_PI/180)));
-			matrixTransform = MatrixMultiply(matrixTransform, MatrixTranslate(transform.translation.x, transform.translation.y, transform.translation.z));
-			matrixTransform = MatrixMultiply(matrixTransform, entities[entIndex].model.transform);
-			
-			// DrawModel(gon, (Vector3){0,0,0}, 1.0f, WHITE);
-			DrawMesh(gon.meshes[0], gon.materials[1], matrixTransform);
-			
-			// Vector3 gunpos = Vector3Add(entities[2].anims[entities[2].animIndex].framePoses[entities[2].animFrame][6].translation, entities[2].position);
-			// DrawModelEx(gon, gunpos, (Vector3){0,1.0f,0},-90.0f,(Vector3){1.0,1.0f,1.0f},WHITE);
-		
+		DrawBoundingBox(testaabb, RED);	
+		DrawModel(gon, (Vector3){0,2,0}, 1.0f, WHITE);
+		DrawModel(DEBUG_CUBE,(Vector3){5,0,5}, 1.0f, WHITE);
 		EndShaderMode();
 		EndMode3D();
 

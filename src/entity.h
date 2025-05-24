@@ -22,7 +22,7 @@ typedef struct Entity{
 	float rotation;
 	Vector3 velocity;
 	Vector3 destination;
-	BoundingBox aabb;
+	// BoundingBox aabb;
 	Model model;
 	bool alive;
 	unsigned int animFrame;

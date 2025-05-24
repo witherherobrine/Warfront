@@ -1,6 +1,15 @@
-#version 330
+// Vertex Shader (lighting.vs)
+#version 330 core
 
-// Input vertex attributes
+
+//uniform mat4 matModel;
+//uniform mat4 view;
+//uniform mat4 projection;
+
+//out vec3 FragPos;
+//out vec3 Normal;
+
+
 in vec3 vertexPosition;
 in vec2 vertexTexCoord;
 in vec3 vertexNormal;
@@ -17,10 +26,17 @@ out vec2 fragTexCoord;
 out vec4 fragColor;
 out vec3 fragNormal;
 
-// NOTE: Add here your custom variables
+
+
 
 void main()
 {
+
+    //FragPos = vec3(matModel * vec4(aPos, 1.0));
+   // Normal = mat3(transpose(inverse(matModel))) * aNormal; // Correct normal transformation
+    //gl_Position = projection * view * vec4(FragPos, 1.0);
+	
+	
     // Send vertex attributes to fragment shader
     fragPosition = vec3(matModel*vec4(vertexPosition, 1.0));
     fragTexCoord = vertexTexCoord;

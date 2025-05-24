@@ -15,10 +15,16 @@ add_executable(${PROJECT_NAME}
 	src/gamemaster.h		
 	src/gamemaster.c		
 	src/pathmanager.h	
-	src/pathmanager.c
+	src/pathmanager.c		
+	src/terrain.h	
+	src/terrain.c
 	src/bullet.h	
 	src/bullet.c
 	src/rllight.h
+	src/worldobject.h
+	src/worldobject.c
+	src/dynamicarray.h
+	src/dynamicarray.c
 )
 
 target_link_libraries(${PROJECT_NAME} 
