@@ -9,6 +9,7 @@
 #include <math.h>
 
 #include "dynamicarray.h"
+typedef struct OctreeNode OctreeNode;
 
 typedef enum {
     OBJECT_ENTITY,
@@ -22,10 +23,13 @@ typedef struct WorldObject {
     ObjectType type;
     BoundingBox aabb;
     void *data;
+	OctreeNode *currentOctreeNode; // NEW: Pointer to the node this object is currently in
+    BoundingBox aabb_prev; // NEW: To check if AABB changed significantly last frame
+
 } WorldObject;
 
 extern DynamicArray worldObjects;
-
+void worldobject_generateDR();
 void worldobject_generateEntity(bool isPlayer, Vector3 position);
 void worldobject_generateBullet();
 void worldobject_updateAABB_entity(BoundingBox* box, Entity* e);

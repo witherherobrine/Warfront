@@ -12,10 +12,15 @@ DynamicArray worldObjects;
 
 
 
+
 static float ENT_AABB_LENGTH = 0.5f;
 static float ENT_AABB_WIDTH = 0.5f;
 static float ENT_AABB_HEIGHT = 2.2f;
 
+
+void worldobject_generateDR(){
+	dyanmicarray_init(&worldObjects, 0);
+}
 
 void worldobject_generateEntity(bool isPlayer, Vector3 position) {
 	
@@ -27,6 +32,9 @@ void worldobject_generateEntity(bool isPlayer, Vector3 position) {
     }
 	
 	Model model = LoadModel("../res/models/person/disgiuy.m3d");
+	
+	model.materials[1].maps[MATERIAL_MAP_DIFFUSE].texture = LoadTexture("../res/textures/newtexx.png"); // Set map diffuse texture
+
 
     int animsCount = 2;
 	ModelAnimation* anim = LoadModelAnimations("../res/models/person/disgiuy.m3d", &animsCount);
@@ -41,7 +49,7 @@ void worldobject_generateEntity(bool isPlayer, Vector3 position) {
     newEntityData->model = model;
     newEntityData->alive = true;
     newEntityData->animFrame = 0;
-    newEntityData->animIndex = 0;
+    newEntityData->animIndex = 2;
     newEntityData->anims = anim;
 	
     WorldObject *newWorldObject = malloc(sizeof(WorldObject));
@@ -56,6 +64,9 @@ void worldobject_generateEntity(bool isPlayer, Vector3 position) {
     newWorldObject->type = OBJECT_ENTITY;
     newWorldObject->aabb = GetModelBoundingBox(model);
     newWorldObject->data = newEntityData; // Point to the allocated EntityData
+	newWorldObject->currentOctreeNode = NULL; // <--- ADD THIS LINE
+    newWorldObject->aabb_prev = newWorldObject->aabb; // <--- Also initialize aabb_prev
+
 	
 	dyanmicarray_add(&worldObjects, newWorldObject);
 
@@ -92,6 +103,9 @@ void worldobject_generateBullet(){
     newWorldObject->type = OBJECT_BULLET;
     newWorldObject->aabb = (BoundingBox){1};
     newWorldObject->data = newBulletData; // Point to the allocated EntityData
+	newWorldObject->currentOctreeNode = NULL; // <--- ADD THIS LINE
+    newWorldObject->aabb_prev = newWorldObject->aabb; // <--- Also initialize aabb_prev
+
 	
 	dyanmicarray_add(&worldObjects, newWorldObject);
 	

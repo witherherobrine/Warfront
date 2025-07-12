@@ -12,6 +12,7 @@
 #include "rllight.h"
 #include "terrain.h"
 #include "worldobject.h"
+#include "octree.h"
 
 
 
@@ -50,7 +51,7 @@ int main(void)
     //--------------------------------------------------------------------------------------
 
 
-	int entityCount = 10;
+	int entityCount = 12;
 
 
 	// Model model = 
@@ -59,13 +60,34 @@ int main(void)
     // model.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = texture;  
 
 	
-	for(unsigned int i =0; i < 10; i++){
+	
+	BoundingBox octBox = (BoundingBox){
+		.min = (Vector3){-5000,-5000,-5000},
+		.max = (Vector3){5000,5000,5000}
+	};
+	OctreeNode* octRoot = octree_createNode(octBox,0);
+
+	worldobject_generateDR();
+
+	for( int i =0; i < entityCount; i++){
 		worldobject_generateEntity(i==0, (Vector3){(float)GetRandomValue(-15, 15)/0.5f,2.3f,(float)GetRandomValue(-15, 15)/0.5f});
+		WorldObject* wo = worldObjects.data[i];
+		
+		
+		if (wo != NULL) {
+			octree_insert(octRoot, wo);
+		} else {
+			printf("\nooof %i\n",i);
+			TraceLog(LOG_ERROR, "Failed to generate entity %d", i);
+		}
+		printf("count- %i\n",worldObjects.count);
 	}
 	int currentArrSize = worldObjects.count;
 	for(unsigned int i =0; i < bulletCacheAmount; i++){
 		worldobject_generateBullet();
 		WorldObject* wo = worldObjects.data[currentArrSize + i];
+		octree_insert(octRoot, wo);
+		// octree_insert(octRoot,wo);
 		Bullet *genBullet = (Bullet *)wo->data;
 		bullets[i] = genBullet;
 	}
@@ -112,9 +134,9 @@ int main(void)
 	int lightDirLoc = GetShaderLocation(shader, "lightDir");
 	int lightColorLoc = GetShaderLocation(shader, "lightColor");
 	
-	Vector3 ambientColor = { 0.1f, 0.1f, 0.1f }; // Example ambient color
+	Vector3 ambientColor = { 1,1,1 }; // Example ambient color
 	Vector3 lightDir = { 0.707, -0.707, 0.0}; // Example light direction (down)
-	Vector3 lightColor = { 2.0f, 2.0f, 2.0f }; // Example light color (white)
+	Vector3 lightColor = { 1.0f, 1.0f, 1.0f }; // Example light color (white)
 
 	SetShaderValue(shader, ambientLoc, &ambientColor, SHADER_UNIFORM_VEC3);
 	SetShaderValue(shader, lightDirLoc, &lightDir, SHADER_UNIFORM_VEC3);
@@ -126,7 +148,6 @@ int main(void)
 		if(currentWorldObject->type == OBJECT_ENTITY){
 			Entity *entityData = (Entity *)currentWorldObject->data;			
 			entity_updateEntityShader(entityData, shader);
-			entityData->model.materials[1].maps[MATERIAL_MAP_DIFFUSE].texture = LoadTexture("../res/textures/brotex.png"); // Set map diffuse texture
 		}
 	}
 	
@@ -177,6 +198,7 @@ int main(void)
 	
 	int PLAYER_INDEX = 0;
 	
+	
     // Main game loop
     while (!WindowShouldClose())        // Detect window close button or ESC key
     {
@@ -216,7 +238,7 @@ int main(void)
 	   }
         UpdateCamera(&camera, cameraMode);                  // Update camera
 		BeginDrawing();
-		ClearBackground(LIGHTGRAY);
+		ClearBackground(SKYBLUE);
 		BeginMode3D(camera);
 		
 		
@@ -274,6 +296,53 @@ int main(void)
 			WorldObject *currentWorldObject = (WorldObject *)worldObjects.data[i];
 			
 			// DrawBoundingBox(currentWorldObject->aabb, RED);	
+			
+			
+			//*****
+			
+
+     bool needs_reinsert = false;
+
+        // CRITICAL CHECK HERE:
+        // Check if the object is *already* in a node and if its AABB *still* intersects that node's bounds.
+        // If currentOctreeNode is NULL, it means the object is not in the tree yet or was removed.
+		
+		
+        if (currentWorldObject->currentOctreeNode != NULL) {
+            // Object is in a node. Now check if it still belongs there.
+            if (!CheckCollisionBoxes(currentWorldObject->currentOctreeNode->bounds, currentWorldObject->aabb)) {
+                // It moved out of its current node, so it needs re-insertion.
+                needs_reinsert = true;
+            }
+            // Optional: Also consider re-inserting if it moved significantly *within* the node
+            // else if (Vector3Distance(GetAABBCenter(wo->aabb), GetAABBCenter(wo->aabb_prev)) > threshold) {
+            //     needs_reinsert = true;
+            // }
+        } else {
+            // Object is not currently in any node (currentOctreeNode is NULL), so it *definitely* needs insertion.
+            needs_reinsert = true;
+        }
+
+        if (needs_reinsert) {
+            // Remove from old node (if it was in one)
+            if (currentWorldObject->currentOctreeNode != NULL) {
+                TraceLog(LOG_DEBUG, "WORLD_OBJECT: Removing object ID %d from old node %p.", currentWorldObject->id, (void*)currentWorldObject->currentOctreeNode);
+                dyanmicarray_remove(&currentWorldObject->currentOctreeNode->objects, currentWorldObject);
+                currentWorldObject->currentOctreeNode = NULL; // Clear pointer AFTER removal
+            }
+
+            // Re-insert into the octree from the root
+            TraceLog(LOG_DEBUG, "WORLD_OBJECT: Inserting object ID %d into octree.", currentWorldObject->id);
+            octree_insert(octRoot, currentWorldObject); // octree_insert MUST update wo->currentOctreeNode
+        }
+
+        // Store current AABB for next frame's comparison
+        currentWorldObject->aabb_prev = currentWorldObject->aabb;
+    
+
+		
+		//***
+			
 	
 		
 			if(currentWorldObject->type == OBJECT_ENTITY){
@@ -285,9 +354,6 @@ int main(void)
 					entityData->rotation = atan2f(ang.x,ang.z) - M_PI/2;
 				}
 				
-				if(!entityData->alive){
-					continue;
-				}
 
 				entity_updateEntity(entityData);
 				DrawModelEx(entityData->model, (Vector3){0,0,0}, (Vector3){0,1.0f,0},0,(Vector3){1.0,1.0f,1.0f},WHITE);
@@ -309,7 +375,7 @@ int main(void)
 						Entity* entity = (Entity *)wo2->data;
 
 						// Perform AABB collision check
-						if (!entity->player && CheckCollisionBoxes(currentWorldObject->aabb, wo2->aabb)) {
+						if (!entity->player && entity->alive && CheckCollisionBoxes(currentWorldObject->aabb, wo2->aabb)) {
 							// Collision detected!
 							
 							RayCollision hit = GetRayCollisionBox(bulletData->ray, wo2->aabb);
@@ -317,6 +383,7 @@ int main(void)
 							if(hit.hit){
 								bulletData->enabled =false;	
 								entity->alive = false;
+								entity_switchAnimation(entity, 0);
 							}
 							
 
@@ -365,7 +432,7 @@ int main(void)
 				// Vector3 pos2 = (Vector3){0,0,0};
 				// printf("pos: {%f, %f, %f}\n",pos.x, pos.y, pos.z);
 				
-				bullet_fireBullet(camera.position,GetCameraForward(&camera), 20.0f, 0);	
+				bullet_fireBullet(camera.position,GetCameraForward(&camera), 100.0f, 0);	
 			}
 		}
 		DrawBoundingBox(testaabb, RED);	

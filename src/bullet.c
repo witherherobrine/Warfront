@@ -7,7 +7,7 @@ const int bulletCacheAmount = 1000;
 int bulletFireIndex = 0;
 Bullet* bullets[1000];
 
-int MAX_BULLET_DIST = 100;
+int MAX_BULLET_DIST = 1000;
 
 void bullet_updateBullet(Bullet* b){
 	if(!b->enabled){return;}

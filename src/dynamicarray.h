@@ -1,7 +1,7 @@
 
 
 #ifndef DYNAMICARRAY_H
-#define WORLDOBJECT_H
+#define DYNAMICARRAY_H
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,7 +16,8 @@ typedef struct {
 
 void dyanmicarray_init(DynamicArray *arr, int initialCapacity);
 void dyanmicarray_add(DynamicArray *arr, void *element);
-void dyanmicarray_remove(DynamicArray *arr, int index);
+void dyanmicarray_remove(DynamicArray *arr, void *element);
 void dyanmicarray_free(DynamicArray *arr);
+void dyanmicarray_resetCount(DynamicArray *arr);
 
 #endif

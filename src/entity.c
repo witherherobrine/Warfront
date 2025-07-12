@@ -91,7 +91,9 @@ void entity_updateEntity(Entity* e){
 	if(!e->alive && e->animFrame >= e->anims[e->animIndex].frameCount-1){
 		return;
 	}
-	    e->model.transform = MatrixMultiply(MatrixRotateY(e->rotation),MatrixTranslate(e->position.x, e->position.y, e->position.z));
+	
+	e->model.transform = MatrixMultiply(MatrixRotateY(e->rotation),MatrixTranslate(e->position.x, e->position.y, e->position.z));
+	
 	float newDist = yPointXZTest((Vector3){200,50,200},e->position.x, e->position.z)+2;
 	e->position.y = newDist;
 
@@ -163,7 +165,7 @@ void entity_setEntityTarget(Entity* e, Vector3 target){
 
 void entity_switchAnimation(Entity* e, int index){
 	e->animIndex = index;
-	// e->animFrame = 0;
+	e->animFrame = 0;
 }
 static bool atPosition(Vector3 ePos, Vector3 v){
 	const float buffer = 0.1f;

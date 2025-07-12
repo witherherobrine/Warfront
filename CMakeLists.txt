@@ -25,6 +25,8 @@ add_executable(${PROJECT_NAME}
 	src/worldobject.c
 	src/dynamicarray.h
 	src/dynamicarray.c
+	src/octree.h
+	src/octree.c
 )
 
 target_link_libraries(${PROJECT_NAME} 
