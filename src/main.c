@@ -12,7 +12,6 @@
 #include "rllight.h"
 #include "terrain.h"
 #include "worldobject.h"
-#include "octree.h"
 
 
 
@@ -25,24 +24,36 @@ int MAP_WIDTH;
 int MAP_HEIGHT;
 
 
+float PLAYER_SPEED = .5f;
+float PLAYER_SPRINT_SPEED = 2.0f;
+
+float SENSITIVITY = 0.003f;
+float AIM_SENSITIVITY = 0.0001f;
+
+
 
 int main(void)
 {
     // Initialization
     //--------------------------------------------------------------------------------------
-    const int screenWidth = GetScreenWidth();
-    const int screenHeight = GetScreenHeight();
+//    const int screenWidth = GetScreenWidth();
+//    const int screenHeight = GetScreenHeight();
+    const int screenWidth = 1920;
+    const int screenHeight = 1000;
+
     InitWindow(screenWidth, screenHeight, "Warfront");
+//    ToggleFullscreen();
     // InitWindow(720, 540, "Warfront");
 	// ToggleFullscreen();
     // Define the camera to look into our 3d world (position, target, up vector)
     Camera camera = { 0 };
     camera.position = (Vector3){ 0.0f, 4.0f, 4.01f };    // Camera position
-    camera.target = (Vector3){ 0.0f, 2.0f, 0.0f };      // Camera looking at point
+    camera.target = (Vector3){ 0.0f, 0.0f, 0.0f };      // Camera looking at point
     camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };          // Camera up vector (rotation towards target)
     camera.fovy = 60.0f;                                // Camera field-of-view Y
     camera.projection = CAMERA_PERSPECTIVE;             // Camera projection type
 
+    // int cameraMode = CAMERA_CUSTOM;
     int cameraMode = CAMERA_FIRST_PERSON;
 
 	
@@ -51,7 +62,7 @@ int main(void)
     //--------------------------------------------------------------------------------------
 
 
-	int entityCount = 12;
+	int entityCount = 120;
 
 
 	// Model model = 
@@ -65,29 +76,19 @@ int main(void)
 		.min = (Vector3){-5000,-5000,-5000},
 		.max = (Vector3){5000,5000,5000}
 	};
-	OctreeNode* octRoot = octree_createNode(octBox,0);
 
 	worldobject_generateDR();
 
 	for( int i =0; i < entityCount; i++){
-		worldobject_generateEntity(i==0, (Vector3){(float)GetRandomValue(-15, 15)/0.5f,2.3f,(float)GetRandomValue(-15, 15)/0.5f});
+		// worldobject_generateEntity(i==0, (Vector3){(float)GetRandomValue(-15, 15)/0.5f,2.3f,(float)GetRandomValue(-15, 15)/0.5f});
+		worldobject_generateEntity(i==0, (Vector3){30,10,30});
 		WorldObject* wo = worldObjects.data[i];
 		
-		
-		if (wo != NULL) {
-			octree_insert(octRoot, wo);
-		} else {
-			printf("\nooof %i\n",i);
-			TraceLog(LOG_ERROR, "Failed to generate entity %d", i);
-		}
-		printf("count- %i\n",worldObjects.count);
 	}
 	int currentArrSize = worldObjects.count;
 	for(unsigned int i =0; i < bulletCacheAmount; i++){
 		worldobject_generateBullet();
 		WorldObject* wo = worldObjects.data[currentArrSize + i];
-		octree_insert(octRoot, wo);
-		// octree_insert(octRoot,wo);
 		Bullet *genBullet = (Bullet *)wo->data;
 		bullets[i] = genBullet;
 	}
@@ -96,9 +97,8 @@ int main(void)
 	
 	// bullet_initBulletCache();
 	
-	bool moving = false;
 	
-	char* GROUND_PATH = "../res/images/groundMap3.jpg";
+	char* GROUND_PATH = "../res/images/ground2.png";
 	
 	Mesh ground  = createTerrain(GROUND_PATH, 200, 50);
 	
@@ -134,9 +134,10 @@ int main(void)
 	int lightDirLoc = GetShaderLocation(shader, "lightDir");
 	int lightColorLoc = GetShaderLocation(shader, "lightColor");
 	
+    float lPower = 0.3;
 	Vector3 ambientColor = { 1,1,1 }; // Example ambient color
 	Vector3 lightDir = { 0.707, -0.707, 0.0}; // Example light direction (down)
-	Vector3 lightColor = { 1.0f, 1.0f, 1.0f }; // Example light color (white)
+	Vector3 lightColor = {lPower, lPower, lPower}; // Example light color (white)
 
 	SetShaderValue(shader, ambientLoc, &ambientColor, SHADER_UNIFORM_VEC3);
 	SetShaderValue(shader, lightDirLoc, &lightDir, SHADER_UNIFORM_VEC3);
@@ -154,7 +155,7 @@ int main(void)
 	
 	Model gModel = LoadModelFromMesh(ground);
 	
-	gModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = LoadTexture("../res/textures/grass.png"); // Set map diffuse texture
+	gModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = LoadTexture("../res/textures/gras.jpg"); // Set map diffuse texture
 	gModel.materials[0].shader = shader;
 
 	
@@ -177,13 +178,21 @@ int main(void)
 	for(unsigned int i = 0; i < gon.materialCount; i++){
 		gon.materials[i].shader = shader;
 	}
+    
 	
 	Model DEBUG_CUBE = LoadModel("../res/models/cubie.m3d");
 	for(unsigned int i = 0; i < DEBUG_CUBE.materialCount; i++){
 		DEBUG_CUBE.materials[i].shader = shader;
 	}
 	
-	
+	Model ashaBod = LoadModel("../res/models/ashabod.m3d");
+	 Texture2D tt = LoadTexture("../res/models/bodee.png");
+     ashaBod.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = tt;  
+     
+     
+	Model ashaHar = LoadModel("../res/models/ashahar.m3d");
+     
+     
 	
 	float* vertTest = gModel.meshes[0].vertices;
 	
@@ -198,24 +207,47 @@ int main(void)
 	
 	int PLAYER_INDEX = 0;
 	
-	
+	Texture2D scope = LoadTexture("../res/images/snaypur.png"); // Load model texture
+	bool renderScope = false;
+
+    //rlDisableBackfaceCulling();
     // Main game loop
     while (!WindowShouldClose())        // Detect window close button or ESC key
     {
-		moving = false;
-	   if (IsKeyDown(KEY_W) || 
-		   IsKeyDown(KEY_A) ||
-		   IsKeyDown(KEY_S) ||
-		   IsKeyDown(KEY_D)){
-		   
-		   moving = true;   
-	   }
-	   if(IsKeyDown(KEY_Q)){
-		   camera.position.y+=0.5f;
-	   }
-	   if(IsKeyDown(KEY_E)){
-		   camera.position.y-=0.5f;
-	   }
+
+	float mouseSensitivity = SENSITIVITY;
+
+	if(IsMouseButtonDown(MOUSE_BUTTON_RIGHT)){
+		mouseSensitivity = AIM_SENSITIVITY;
+	}
+
+	Vector2 mousePositionDelta = GetMouseDelta();
+	CameraYaw(&camera, -mousePositionDelta.x*mouseSensitivity, false);
+	CameraPitch(&camera, -mousePositionDelta.y*mouseSensitivity, true,false, false);
+
+        float speed = PLAYER_SPEED;
+        if(IsKeyDown(KEY_LEFT_SHIFT)){
+        	speed = PLAYER_SPRINT_SPEED;
+        }
+
+		if(IsKeyDown(KEY_Q)){
+		camera.position.y+=0.5f;
+		}
+		if(IsKeyDown(KEY_E)){
+			camera.position.y-=0.5f;
+		}
+		if(IsKeyDown(KEY_W)){
+			CameraMoveForward(&camera, speed, false);	  
+		}
+		if(IsKeyDown(KEY_A)){
+		    CameraMoveRight(&camera, -speed, false);		
+		}
+		if(IsKeyDown(KEY_S)){
+			CameraMoveForward(&camera, -speed, false);
+		}
+		if(IsKeyDown(KEY_D)){
+		    CameraMoveRight(&camera, speed, false);
+		}
 	   // if(IsKeyPressed(KEY_ONE)){
 		   // gamemaster_moveTest(entities, 0, entities[entityCount-1].position);
 	   // }
@@ -223,9 +255,8 @@ int main(void)
 		   // gamemaster_moveTest(entities, 1, entities[entityCount-1].position);
 	   // }
 	   
-		float newDist = yPointXZTest((Vector3){200,50,200},camera.position.x, camera.position.z)+2;
+		float newDist = yPointXZTest((Vector3){200,50,200},camera.position.x, camera.position.z)+3.0f;
 	   CameraMoveUp(&camera,newDist - camera.position.y);
-	   
 	   moveFrame++;
 	   if(moveFrame > 30){
 		   moveFrame = 0;
@@ -236,15 +267,28 @@ int main(void)
 			// entity_queryBox(&entities[0],qVec);
 		   // path_manager_moveGroup(entities, 5);
 	   }
-        UpdateCamera(&camera, cameraMode);                  // Update camera
+//        UpdateCamera(&camera, cameraMode);                  // Update camera
+
+	// 	WorldObject *wo = (WorldObject *)worldObjects.data[1];
+	// 	Entity *e = (Entity *)wo->data;	
+	   // camera.position = e->position;
+	   // camera.position.y = e->position.y+3;
+
+	// 	WorldObject *wo2 = (WorldObject *)worldObjects.data[2];
+	// 	Entity *e2 = (Entity *)wo2->data;
+
+	   // camera.target = Vector3Add(e->position, (Vector3){4,4,0});
+
 		BeginDrawing();
 		ClearBackground(SKYBLUE);
+//		ClearBackground(BLACK);
 		BeginMode3D(camera);
 		
+		DrawModel(ashaBod, (Vector3){0,2,0}, 2.0f, WHITE);
+		DrawModel(ashaHar, (Vector3){0,1.8,0}, 2.0f, WHITE);
 		
 		// BeginShaderMode(shader);
 
-		// DrawPlane((Vector3){ 0.0f, 0.0f, 0.0f }, (Vector2){ 128.0f, 128.0f }, WHITE); // Draw ground
 		
 		// entities[2].model.bindPose[6].rotation
 		// DrawLine3D((Vector3){0,0,0}, entities[0].anims[entities[0].animIndex].framePoses[entities[0].animFrame][6].translation, RED);
@@ -253,21 +297,6 @@ int main(void)
 		// Vector3 ang = GetCameraForward(&camera);
 		// entities[PLAYER_INDEX].rotation = atan2f(ang.x,ang.z) - M_PI/2;
 		
-		
-		Vector3 lStart = (Vector3){0,20,0};
-		Vector3 lEnd = (Vector3){0};
-		lEnd = (Vector3){vertTest[vertIndex], vertTest[vertIndex+1], vertTest[vertIndex+2]};
-		// camera.position = lEnd;
-		
-		vertFrame++;
-		if(vertFrame > 15){
-			// printf("(%i,%i,%i)\n",(int)vertTest[vertIndex], (int)vertTest[vertIndex+1], (int)	vertTest[vertIndex+2]);
-			vertIndex+=3;
-			vertFrame = 0;
-		}
-		
-		
-		DrawLine3D(lStart, lEnd, WHITE);
 		
 		// for (unsigned int i = 0; i < entityCount; i++){
 			// entity_updateEntity(&entities[i]);
@@ -290,58 +319,13 @@ int main(void)
 			// if(CheckCollisionBoxes(testaabb, entities[i].aabb) && entities[i].alive){
 				// entity_setEntityTarget(&entities[0], entities[i].position);
 			// }
-		// }
+		
+		
 		for(int i = 0; i < worldObjects.count; i++){
 			
 			WorldObject *currentWorldObject = (WorldObject *)worldObjects.data[i];
 			
-			// DrawBoundingBox(currentWorldObject->aabb, RED);	
-			
-			
-			//*****
-			
-
-     bool needs_reinsert = false;
-
-        // CRITICAL CHECK HERE:
-        // Check if the object is *already* in a node and if its AABB *still* intersects that node's bounds.
-        // If currentOctreeNode is NULL, it means the object is not in the tree yet or was removed.
-		
-		
-        if (currentWorldObject->currentOctreeNode != NULL) {
-            // Object is in a node. Now check if it still belongs there.
-            if (!CheckCollisionBoxes(currentWorldObject->currentOctreeNode->bounds, currentWorldObject->aabb)) {
-                // It moved out of its current node, so it needs re-insertion.
-                needs_reinsert = true;
-            }
-            // Optional: Also consider re-inserting if it moved significantly *within* the node
-            // else if (Vector3Distance(GetAABBCenter(wo->aabb), GetAABBCenter(wo->aabb_prev)) > threshold) {
-            //     needs_reinsert = true;
-            // }
-        } else {
-            // Object is not currently in any node (currentOctreeNode is NULL), so it *definitely* needs insertion.
-            needs_reinsert = true;
-        }
-
-        if (needs_reinsert) {
-            // Remove from old node (if it was in one)
-            if (currentWorldObject->currentOctreeNode != NULL) {
-                TraceLog(LOG_DEBUG, "WORLD_OBJECT: Removing object ID %d from old node %p.", currentWorldObject->id, (void*)currentWorldObject->currentOctreeNode);
-                dyanmicarray_remove(&currentWorldObject->currentOctreeNode->objects, currentWorldObject);
-                currentWorldObject->currentOctreeNode = NULL; // Clear pointer AFTER removal
-            }
-
-            // Re-insert into the octree from the root
-            TraceLog(LOG_DEBUG, "WORLD_OBJECT: Inserting object ID %d into octree.", currentWorldObject->id);
-            octree_insert(octRoot, currentWorldObject); // octree_insert MUST update wo->currentOctreeNode
-        }
-
-        // Store current AABB for next frame's comparison
-        currentWorldObject->aabb_prev = currentWorldObject->aabb;
-    
-
-		
-		//***
+//			DrawBoundingBox(currentWorldObject->aabb, RED);	
 			
 	
 		
@@ -353,19 +337,32 @@ int main(void)
 					Vector3 ang = GetCameraForward(&camera);
 					entityData->rotation = atan2f(ang.x,ang.z) - M_PI/2;
 				}
-				
 
 				entity_updateEntity(entityData);
-				DrawModelEx(entityData->model, (Vector3){0,0,0}, (Vector3){0,1.0f,0},0,(Vector3){1.0,1.0f,1.0f},WHITE);
+				//DrawModelEx(entityData->model, (Vector3){0,0,0}, (Vector3){0,1.0f,0},0,(Vector3){1.0,1.0f,1.0f},WHITE);
 			}
 			if(currentWorldObject->type == OBJECT_BULLET){
 				
 				Bullet *bulletData = (Bullet *)currentWorldObject->data;
 				worldobject_updateAABB_bullet(&currentWorldObject->aabb, bulletData);
-				
+				DrawSphere(Vector3Add(bulletData->ray.position, Vector3Scale(bulletData->ray.direction, bulletData->velocity)),0.3f,RED);
 				if(!bulletData->enabled){
 					continue;
 				}
+				
+				
+				//check terrain collision
+				
+				//if disnabled, continue
+				// RayCollision rcol = GetRayCollisionMesh(bulletData->ray, gModel.meshes[0],gModel.transform);
+				
+				bool terrainHit = terrain_terrainPointCollide(pixels, bulletData);
+				// if(rcol.hit && rcol.distance <= bulletData->velocity){
+				if(false && terrainHit){
+					bulletData->enabled =false;	
+					continue;
+				}
+				
 				
 				for (int j = 0; j < worldObjects.count; j++) {
 					WorldObject *wo2 = (WorldObject *)worldObjects.data[j];
@@ -403,10 +400,13 @@ int main(void)
 				}
 				bullet_updateBullet(bulletData);
 				
-				DrawLine3D(bulletData->ray.position, Vector3Add(bulletData->ray.position, Vector3Scale(bulletData->ray.direction, bulletData->velocity)), BLACK);
+//				DrawLine3D(bulletData->ray.position, Vector3Add(bulletData->ray.position, Vector3Scale(bulletData->ray.direction, bulletData->velocity)), YELLOW);
+
+
 				// bulletData->ray.position = Vector3Add(bulletData->ray.position,Vector3Add(Vector3Scale(bulletData->ray.direction,bulletData->velocity),(Vector3){0,-.001,0}));
 			}
 		}
+		
 		
 		DrawModel(gModel, (Vector3){0,0,0}, 1.0f, WHITE);
 		// 	DrawModelWires(gModel, (Vector3){0,0,0}, 1.0f, WHITE);
@@ -432,17 +432,28 @@ int main(void)
 				// Vector3 pos2 = (Vector3){0,0,0};
 				// printf("pos: {%f, %f, %f}\n",pos.x, pos.y, pos.z);
 				
-				bullet_fireBullet(camera.position,GetCameraForward(&camera), 100.0f, 0);	
+				bullet_fireBullet(camera.position,GetCameraForward(&camera), 30.0f, 0);	
 			}
 		}
-		DrawBoundingBox(testaabb, RED);	
+		if(IsMouseButtonDown(MOUSE_BUTTON_RIGHT)){
+			renderScope = true;
+			camera.fovy = 5.0f;
+		}else{
+			renderScope = false;
+			camera.fovy = 60.0f;
+		}
+		// DrawBoundingBox(testaabb, RED);	
 		DrawModel(gon, (Vector3){0,2,0}, 1.0f, WHITE);
 		DrawModel(DEBUG_CUBE,(Vector3){5,0,5}, 1.0f, WHITE);
 		EndShaderMode();
 		EndMode3D();
 
+		if(renderScope){
+			DrawTexture(scope,0,0, WHITE);
+		}
 
-		DrawRectangle(GetScreenWidth()/2,GetScreenHeight()/2,5,5, BLACK);
+
+		DrawRectangle(GetScreenWidth()/2-2,GetScreenHeight()/2-2,4,4, BLACK);
 
 		// Draw info boxes
 		DrawRectangle(5, 5, 330, 100, Fade(SKYBLUE, 0.5f));

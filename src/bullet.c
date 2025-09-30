@@ -3,9 +3,9 @@
 #include "bullet.h"
 
 
-const int bulletCacheAmount = 1000;
+const int bulletCacheAmount = 10;
 int bulletFireIndex = 0;
-Bullet* bullets[1000];
+Bullet* bullets[10];
 
 int MAX_BULLET_DIST = 1000;
 

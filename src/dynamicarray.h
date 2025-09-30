@@ -15,6 +15,8 @@ typedef struct {
 
 
 void dyanmicarray_init(DynamicArray *arr, int initialCapacity);
+void* dyanmicarray_get(const DynamicArray* arr, int index);
+void dyanmicarray_clear(DynamicArray* arr);
 void dyanmicarray_add(DynamicArray *arr, void *element);
 void dyanmicarray_remove(DynamicArray *arr, void *element);
 void dyanmicarray_free(DynamicArray *arr);

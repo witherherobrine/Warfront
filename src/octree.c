@@ -1,6 +1,8 @@
 
 
 #include "octree.h"
+#include <stdio.h> // For printf
+#include <string.h> // For memset and strlen (or just a loop for indent)
 
 // Function to initialize an octree node
 OctreeNode* octree_createNode(BoundingBox bounds, int depth) {
@@ -32,15 +34,16 @@ OctreeNode* octree_createNode(BoundingBox bounds, int depth) {
 }
 
 // Function to free an octree node and its descendants
-// void octree_freeNode(OctreeNode *node) {
-    // if (node) {
-        // for (int i = 0; i < 8; i++) {
-            // octree_freeNode(node->children[i]);
-        // }
-        // dyanmicarray_free(&node->objects);
-        // free(node);
-    // }
-// }
+void octree_free(OctreeNode **node) {
+    if (*node == NULL) return;
+    // Recursively free children first
+    for (int i = 0; i < 8; i++) {
+        octree_free(&((*node)->children[i]));
+    }
+    dyanmicarray_free(&((*node)->objects)); // Free the dynamic array itself
+    free(*node); // Free the node struct
+    *node = NULL; // Set the pointer to NULL
+}
 
 // Helper function to determine which of the 8 octants a point lies in
 int octree_getOctantIndex(BoundingBox bounds, Vector3 position) {
@@ -57,103 +60,157 @@ int octree_getOctantIndex(BoundingBox bounds, Vector3 position) {
 }
 
 // Function to insert a WorldObject into the octree
+// Function to insert a WorldObject into the octree
 void octree_insert(OctreeNode *node, WorldObject *object) {
+    // Initial NULL and sanity checks
+    // ... (Your existing sanity checks for node, object, AABB, and zero-extent node) ...
 
-
-    // Initial NULL checks (should have been caught by previous checks, but good to be safe)
-    if (node == NULL) {
-        TraceLog(LOG_FATAL, "OCT_INSERT_ERROR: NULL node passed to octree_insert!");
-        exit(1);
-    }
-    if (object == NULL) {
-        TraceLog(LOG_FATAL, "OCT_INSERT_ERROR: NULL object passed to octree_insert!");
-        exit(1);
-    }
-		   
-		   
-    // Also, check for already collapsed bounds before even calling subdivide
-    if (fabsf(node->bounds.min.x - node->bounds.max.x) < FLT_EPSILON &&
-        fabsf(node->bounds.min.y - node->bounds.max.y) < FLT_EPSILON &&
-        fabsf(node->bounds.min.z - node->bounds.max.z) < FLT_EPSILON) {
-        TraceLog(LOG_FATAL, "OCTREE_INSERT_FATAL: Attempting to subdivide a zero-extent node! Node %p, Depth %d", (void*)node, node->depth);
-        exit(1);
-    }
-
-		   
-    // Sanity check on object AABB (add this from previous suggestions if not already)
-    // This is CRUCIAL if CheckCollisionBoxes can't handle bad AABBs gracefully.
-    if (isnan(object->aabb.min.x) || isinf(object->aabb.min.x) ||
-        isnan(object->aabb.min.y) || isinf(object->aabb.min.y) ||
-        isnan(object->aabb.min.z) || isinf(object->aabb.min.z) ||
-        isnan(object->aabb.max.x) || isinf(object->aabb.max.x) ||
-        isnan(object->aabb.max.y) || isinf(object->aabb.max.y) ||
-        isnan(object->aabb.max.z) || isinf(object->aabb.max.z)) {
-        TraceLog(LOG_FATAL, "OCT_INSERT_ERROR: WorldObject %d has NaN/Inf AABB values!", object->id);
-        exit(1);
-    }
-
-    // Sanity check on node depth (moved here for clarity with the fix)
-    if (node->depth > OCTREE_MAX_DEPTH) {
-        // This case indicates we've gone beyond the intended max depth.
-        // It shouldn't happen if the logic below is correct.
-        // If it does, it means an object is still being pushed deeper
-        // after it should have been stopped.
-        TraceLog(LOG_FATAL, "OCT_INSERT_FATAL: Node depth (%d) exceeds OCTREE_MAX_DEPTH (%d)! Object %d. Node %p",
-                 node->depth, OCTREE_MAX_DEPTH, object->id, (void*)node);
-        exit(1);
-    }
-  
-
-    // 1. Check if the object's AABB is completely contained within the node's bounds
+    // 1. Check if the object's AABB intersects the current node's bounds.
+    // If it doesn't even intersect, it cannot be placed here or in children.
     if (!CheckCollisionBoxes(node->bounds, object->aabb)) {
-        return; // Object is outside this node's bounds
-    }
-    
-    // IMPORTANT: Redesigned logic for leaf vs. subdivide
-    // First, check if we've reached max depth. If so, ALWAYS add to this node.
-    if (node->depth >= OCTREE_MAX_DEPTH) {
-        dyanmicarray_add(&node->objects, object);
+        TraceLog(LOG_WARNING, "OCTREE_INSERT: Object ID %d AABB is outside node %p (Depth: %d) bounds. Not inserted.",
+                 object->id, (void*)node, node->depth);
         return;
     }
 
-    // Now, if NOT at max depth, proceed with normal capacity check and subdivision
-    // 2. If the current node is a leaf node (has no children) and hasn't reached capacity
-    if (node->children[0] == NULL && node->objects.count < OCTREE_CAPACITY) {
+    // 2. If this node is at max depth OR it's a leaf node (no children yet)
+    //    AND has space (not over capacity) - add the object directly to this node.
+    //    This is the "final resting place" for objects at max depth or in sparse areas.
+    if (node->depth >= OCTREE_MAX_DEPTH || node->children[0] == NULL) { // If it's a leaf node or at max depth
         dyanmicarray_add(&node->objects, object);
+        object->currentOctreeNode = node; // <<< CRITICAL: Update currentOctreeNode
+        TraceLog(LOG_DEBUG, "OCTREE_INSERT: Object ID %d added to leaf/max-depth node %p (Depth: %d). Objects: %d",
+                 object->id, (void*)node, node->depth, node->objects.count);
+
+        // If at max depth, we never subdivide further.
+        // If it's a leaf node (and not max depth yet), check if we need to subdivide.
+        if (node->depth < OCTREE_MAX_DEPTH && node->objects.count > OCTREE_CAPACITY) {
+            octree_subdivide_and_redistribute(node); // Subdivide and move objects down
+        }
+        return; // Object has been placed
+    }
+
+    // 3. If this is an internal node (has children and not at max depth),
+    //    try to push the object down to a child.
+    int children_object_is_contained_in = 0;
+    int target_child_index = -1;
+
+    for (int i = 0; i < 8; i++) {
+        // Check if the object's AABB is COMPLETELY CONTAINED within this child's bounds.
+        // This is crucial for avoiding over-subdivision due to straddling.
+        if (CheckAABBContainsAABB(node->children[i]->bounds, object->aabb)) {
+            children_object_is_contained_in++;
+            target_child_index = i; // Store index of the first (or only) child
+        }
+    }
+
+    if (children_object_is_contained_in == 1) {
+        // Object fits perfectly into exactly one child, so recurse down.
+        TraceLog(LOG_DEBUG, "OCTREE_INSERT: Object ID %d fits child %d. Recursing.", object->id, target_child_index);
+        octree_insert(node->children[target_child_index], object);
+    } else {
+        // Object straddles multiple children, or doesn't fit into any single child perfectly,
+        // or fits into 0 children (though `CheckCollisionBoxes` should have caught this at start).
+        // Store it directly in this current node (the parent).
+        // This prevents unnecessary deep subdivision for straddling objects.
+        dyanmicarray_add(&node->objects, object);
+        object->currentOctreeNode = node; // <<< CRITICAL: Update currentOctreeNode
+        TraceLog(LOG_DEBUG, "OCTREE_INSERT: Object ID %d straddles/multiple children or no fit. Added to node %p (Depth: %d). Objects: %d",
+                 object->id, (void*)node, node->depth, node->objects.count);
+
+        // NOTE: An internal node (with children already) doesn't typically re-subdivide.
+        // It just holds the straddling objects. Its children will manage their own subdivisions.
+        // So, no `if (node->objects.count > OCTREE_CAPACITY)` check here.
+    }
+}
+
+// Function to perform subdivision and re-distribute objects
+// This is called when a leaf node exceeds capacity and is not at max depth.
+void octree_subdivide_and_redistribute(OctreeNode *node) {
+    if (node == NULL || node->depth >= OCTREE_MAX_DEPTH || node->children[0] != NULL) {
+        TraceLog(LOG_ERROR, "OCTREE_SUBDIVIDE_REDISTRIBUTE: Invalid call. Node %p (Depth: %d).", (void*)node, node->depth);
         return;
     }
+    TraceLog(LOG_DEBUG, "OCTREE_SUBDIVIDE: Node %p (Depth: %d) subdividing and redistributing.", (void*)node, node->depth);
 
-    // 3. If the current node is a leaf node (has no children) AND has reached capacity (since we already handled max depth above), subdivide it
-    if (node->children[0] == NULL) { // This condition implicitly means node->objects.count >= OCTREE_CAPACITY
-        
-        // ... (Your OCT_INSERT_SUBDIVIDE_TRIGGER print and zero-extent check here) ...
+    // 1. Create the 8 child nodes
+    octree_create_children(node); // This function sets node->children[i]
 
-        octree_subdivide(node);
+    // 2. Temporarily store objects, then clear parent's object list
+    DynamicArray temp_objects;
+    dyanmicarray_init(&temp_objects, node->objects.count);
+    for (int i = 0; i < node->objects.count; i++) {
+        dyanmicarray_add(&temp_objects, dyanmicarray_get(&node->objects, i));
     }
+    dyanmicarray_clear(&node->objects); // Clear the parent's current object list
 
-		// 4. Determine which child octant the object belongs to (based on its AABB's center)
-    Vector3 center = {
-        (object->aabb.min.x + object->aabb.max.x) / 2.0f,
-        (object->aabb.min.y + object->aabb.max.y) / 2.0f,
-        (object->aabb.min.z + object->aabb.max.z) / 2.0f
-    };
-    
-    // Check for NaN/Inf in center (if AABB was fine, but division resulted in bad values)
-    if (isnan(center.x) || isinf(center.x) ||
-        isnan(center.y) || isinf(center.y) ||
-        isnan(center.z) || isinf(center.z)) {
-        TraceLog(LOG_FATAL, "OCT_INSERT_ERROR: Object %d center is NaN/Inf!", object->id);
-        exit(1);
+    // 3. Re-insert ALL objects from the temporary list into the new children (or back into this node if straddling)
+    // IMPORTANT: Recursively call octree_insert on the current node 'node',
+    // which will then correctly route the objects to children or keep them here.
+    for (int i = 0; i < temp_objects.count; i++) {
+        WorldObject* obj_to_redistribute = (WorldObject*)dyanmicarray_get(&temp_objects, i);
+        // This recursive call to octree_insert on the *current node* 'node'
+        // will handle placing the object correctly into a child or back into 'node' itself.
+        octree_insert(node, obj_to_redistribute);
     }
-
-
-    int index = octree_getOctantIndex(node->bounds, center);
-
-    // 5. Recursively insert the object into the appropriate child node
-    octree_insert(node->children[index], object);
+    dyanmicarray_free(&temp_objects); // Free the temporary array
 }
 
 
+// Function to create and initialize 8 child nodes for subdivision
+// This should be called by octree_subdivide when a node needs to split.
+void octree_create_children(OctreeNode *node) {
+    if (node == NULL || node->children[0] != NULL) {
+        TraceLog(LOG_ERROR, "OCTREE_CREATE_CHILDREN: Invalid node for subdivision or already has children.");
+        return;
+    }
+
+    Vector3 center = GetAABBCenter(node->bounds);
+    Vector3 halfSize = (Vector3){
+        (node->bounds.max.x - node->bounds.min.x) / 2.0f,
+        (node->bounds.max.y - node->bounds.min.y) / 2.0f,
+        (node->bounds.max.z - node->bounds.min.z) / 2.0f
+    };
+
+    // Define child bounds systematically
+    // Iterate through X, Y, Z quadrants
+    for (int x = 0; x < 2; x++) {
+        for (int y = 0; y < 2; y++) {
+            for (int z = 0; z < 2; z++) {
+                int i = x * 4 + y * 2 + z; // Index mapping (0-7)
+
+                BoundingBox childBounds;
+                childBounds.min.x = (x == 0) ? node->bounds.min.x : center.x;
+                childBounds.min.y = (y == 0) ? node->bounds.min.y : center.y;
+                childBounds.min.z = (z == 0) ? node->bounds.min.z : center.z;
+
+                childBounds.max.x = (x == 0) ? center.x : node->bounds.max.x;
+                childBounds.max.y = (y == 0) ? center.y : node->bounds.max.y;
+                childBounds.max.z = (z == 0) ? center.z : node->bounds.max.z;
+
+                node->children[i] = octree_createNode(childBounds, node->depth + 1);
+            }
+        }
+    }
+}
+
+// Helper function: Checks if container AABB fully contains contained AABB
+// (You'll need to define this if not already present)
+bool CheckAABBContainsAABB(BoundingBox container, BoundingBox contained) {
+    return (contained.min.x >= container.min.x &&
+            contained.min.y >= container.min.y &&
+            contained.min.z >= container.min.z &&
+            contained.max.x <= container.max.x &&
+            contained.max.y <= container.max.y &&
+            contained.max.z <= container.max.z);
+}
+Vector3 GetAABBCenter(BoundingBox box) {
+    Vector3 center;
+    center.x = (box.min.x + box.max.x) / 2.0f;
+    center.y = (box.min.y + box.max.y) / 2.0f;
+    center.z = (box.min.z + box.max.z) / 2.0f;
+    return center;
+}
 
 // Function to subdivide an octree node into 8 children
 void octree_subdivide(OctreeNode *node) {
@@ -188,12 +245,73 @@ void octree_subdivide(OctreeNode *node) {
     }
 
     // Clear the objects array in the parent node (they are now in the children)
+	
+	printf("BWEFORE:%i\n",node->objects.count);
     dyanmicarray_resetCount(&node->objects);
+	printf("AFTER:%i\n",node->objects.count);
 }
 
-#include "octree.h"
-#include <stdio.h> // For printf
-#include <string.h> // For memset and strlen (or just a loop for indent)
+void octree_prune(OctreeNode *node) {
+    if (node == NULL) {
+        return;
+    }
+	
+
+    // 1. Recursively prune children first (post-order traversal)
+    // This ensures child nodes are cleaned up before checking the parent.
+    for (int i = 0; i < 8; i++) {
+        if (node->children[i] != NULL) {
+            octree_prune(node->children[i]);
+        }
+    }
+
+    // 2. Only consider pruning if this node is an internal node AND is not at max depth.
+    // Nodes at max depth are always leaves and won't have children to prune.
+    if (node->children[0] != NULL && node->depth < OCTREE_MAX_DEPTH) {
+        bool can_prune_children = true;
+
+        // CRITICAL CHECK: Ensure the parent node itself is empty of direct objects.
+        // If a node holds straddling objects, it cannot collapse its children.
+        if (node->objects.count > 0) {
+            TraceLog(LOG_DEBUG, "OCTREE_PRUNE: Node %p (Depth: %d) has %d direct objects. Cannot prune children.",
+                     (void*)node, node->depth, node->objects.count);
+            can_prune_children = false;
+        } else {
+            // Now, check if all children are empty leaf nodes.
+            for (int i = 0; i < 8; i++) {
+                OctreeNode* child = node->children[i];
+                if (child == NULL) {
+                    // This scenario suggests the child was never created or already freed.
+                    // If your subdivision always creates all 8, then this implies an error.
+                    // For robust pruning, if any child is NULL or not an empty leaf, we can't prune.
+                    can_prune_children = false;
+
+                    break;
+                }
+                // A child must be a leaf (no children itself) AND contain no objects.
+                if (child->children[0] != NULL || child->objects.count > 0) {
+                    TraceLog(LOG_DEBUG, "OCTREE_PRUNE: Child %d of node %p (Depth: %d) is not an empty leaf. Cannot prune.",
+                             i, (void*)node, node->depth);
+                    can_prune_children = false;
+                    break;
+                }
+            }
+        }
+
+        if (can_prune_children) {
+			printf("HERE\n");
+            // All conditions met: parent node is empty, and all children are empty leaves.
+            // Proceed to prune (free) the children.
+            TraceLog(LOG_DEBUG, "OCTREE_PRUNE: Pruning children of node %p (Depth: %d) - All children are empty leaves.",
+                     (void*)node, node->depth);
+            for (int i = 0; i < 8; i++) {
+                octree_free(&(node->children[i])); // Call your octree_free that also sets to NULL
+                node->children[i] = NULL; // Ensure pointer is explicitly NULL after freeing
+            }
+            // After pruning children, this node effectively becomes a leaf node again.
+        }
+    }
+}
 
 // Helper function for recursive traversal and printing
 static void octree_debugPrintStructure(OctreeNode *node, int level) {
@@ -260,6 +378,37 @@ void octree_debugPrintOutput(OctreeNode *root) {
 }
 
 
+
+void octree_debugDraw(OctreeNode *node) {
+    // Base case: If the node is NULL, there's nothing to draw.
+    if (node == NULL) {
+        return;
+    }
+
+    // Draw the bounding box of the current node
+    // You can choose different colors based on depth or if it's a leaf node.
+    Color boxColor = RED; // Default color
+
+    // Example: Change color for leaf nodes or nodes with objects
+    if (node->children[0] == NULL) { // It's a leaf node
+        if (node->objects.count > 0) {
+            boxColor = GREEN; // Leaf node with objects
+        } else {
+            boxColor = BLUE; // Empty leaf node
+        }
+    } else {
+        boxColor = YELLOW; // Internal node with children
+    }
+    
+    // Draw the bounding box. Raylib's DrawBoundingBox draws a wireframe.
+    DrawBoundingBox(node->bounds, boxColor);
+
+    // Recursively call the function for each child node
+    // This will draw the bounding boxes of all descendants.
+    for (int i = 0; i < 8; i++) {
+        octree_debugDraw(node->children[i]);
+    }
+}
 
 
 

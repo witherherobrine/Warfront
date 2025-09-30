@@ -6,6 +6,7 @@ project(Warfront)
 
 add_executable(${PROJECT_NAME} 
 	src/main.c
+    src/ecstypes.h
 	src/block.h
 	src/block.c	
 	src/entity.h		

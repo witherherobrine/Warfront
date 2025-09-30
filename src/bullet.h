@@ -1,5 +1,8 @@
 
 
+#ifndef BULLET_H
+#define BULLET_H
+
 #include <stdio.h>
 #include "raylib.h"
 #include "raymath.h"
@@ -20,3 +23,5 @@ void bullet_initBulletCache();
 void bullet_updateBullets();
 void bullet_updateBullet(Bullet* b);
 void bullet_fireBullet(Vector3 start, Vector3 direction, float velocity, int shooterId);
+
+#endif

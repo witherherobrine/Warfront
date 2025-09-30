@@ -43,6 +43,26 @@ void dyanmicarray_init(DynamicArray *arr, int initialCapacity) {
 
 }
 
+void* dyanmicarray_get(const DynamicArray* arr, int index) {
+    if (arr == NULL) {
+        TraceLog(LOG_ERROR, "DYNAMICARRAY_GET: Attempted to get from a NULL array.");
+        return NULL;
+    }
+    if (index < 0 || index >= arr->count) {
+        TraceLog(LOG_WARNING, "DYNAMICARRAY_GET: Index %d out of bounds (0-%d).", index, arr->count - 1);
+        return NULL; // Or handle as an error, e.g., assert, exit
+    }
+    return arr->data[index];
+}
+
+void dyanmicarray_clear(DynamicArray* arr) {
+    if (arr == NULL) {
+        TraceLog(LOG_ERROR, "DYNAMICARRAY_CLEAR: Attempted to clear a NULL array.");
+        return;
+    }
+    TraceLog(LOG_DEBUG, "DYNAMICARRAY_CLEAR: Clearing array %p. Old count: %d.", (void*)arr, arr->count);
+    arr->count = 0;
+}
 
 // add element to dynamic array
 void dyanmicarray_add(DynamicArray *arr, void *element) {
