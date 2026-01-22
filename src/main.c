@@ -1,496 +1,391 @@
 
 
-# include <stdio.h>
+#define FNL_IMPL
 #include "raylib.h"
 #include "raymath.h"
-#include "rcamera.h"
+#include "rlgl.h"       // For rlLoadVertexBuffer, rlDrawVertexArray, etc.
 
-#include "entity.h"
-#include "pathmanager.h"
-#include "bullet.h"
-#include "gamemaster.h"
-#include "rllight.h"
-#include "terrain.h"
-#include "worldobject.h"
+// Use Raylib's internal GLAD/OpenGL definitions
+#define GLSL_VERSION            330
 
 
-
-extern int bulletCacheAmount;
-extern Bullet* bullets[];
-extern BoundingBox testaabb;
-
-Color* pixels;
-int MAP_WIDTH;
-int MAP_HEIGHT;
+#include "utils.h"
 
 
-float PLAYER_SPEED = .5f;
-float PLAYER_SPRINT_SPEED = 2.0f;
+#include "game.h"
+#include "entities.h"
+#include "systems.h"
 
-float SENSITIVITY = 0.003f;
-float AIM_SENSITIVITY = 0.0001f;
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+
+Shader terrainShader;
+int lightDirLoc, lightColorLoc, viewPosLoc, ambientLoc;
 
 
 
-int main(void)
-{
-    // Initialization
-    //--------------------------------------------------------------------------------------
-//    const int screenWidth = GetScreenWidth();
-//    const int screenHeight = GetScreenHeight();
-    const int screenWidth = 1920;
-    const int screenHeight = 1000;
+void SetupShaders() {
 
-    InitWindow(screenWidth, screenHeight, "Warfront");
-//    ToggleFullscreen();
-    // InitWindow(720, 540, "Warfront");
-	// ToggleFullscreen();
-    // Define the camera to look into our 3d world (position, target, up vector)
-    Camera camera = { 0 };
-    camera.position = (Vector3){ 0.0f, 4.0f, 4.01f };    // Camera position
-    camera.target = (Vector3){ 0.0f, 0.0f, 0.0f };      // Camera looking at point
-    camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };          // Camera up vector (rotation towards target)
-    camera.fovy = 60.0f;                                // Camera field-of-view Y
-    camera.projection = CAMERA_PERSPECTIVE;             // Camera projection type
+    terrainShader = LoadShader("../res/shaders/lighting.vs", "../res/shaders/lighting.fs");
 
-    // int cameraMode = CAMERA_CUSTOM;
-    int cameraMode = CAMERA_FIRST_PERSON;
-
-	
-    DisableCursor();                    // Limit cursor to relative movement inside the window
-    SetTargetFPS(60);                   // Set our game to run at 60 frames-per-second
-    //--------------------------------------------------------------------------------------
-
-
-	int entityCount = 120;
-
-
-	// Model model = 
-	// Model model = LoadModel("../res/models/JasperCarmack_Community_SRC.iqm");
-	// Texture2D texture = LoadTexture("../res/models/T_Jasper_Masc_BaseColor.png"); // Load model texture
-    // model.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = texture;  
-
-	
-	
-	BoundingBox octBox = (BoundingBox){
-		.min = (Vector3){-5000,-5000,-5000},
-		.max = (Vector3){5000,5000,5000}
-	};
-
-	worldobject_generateDR();
-
-	for( int i =0; i < entityCount; i++){
-		// worldobject_generateEntity(i==0, (Vector3){(float)GetRandomValue(-15, 15)/0.5f,2.3f,(float)GetRandomValue(-15, 15)/0.5f});
-		worldobject_generateEntity(i==0, (Vector3){30,10,30});
-		WorldObject* wo = worldObjects.data[i];
-		
-	}
-	int currentArrSize = worldObjects.count;
-	for(unsigned int i =0; i < bulletCacheAmount; i++){
-		worldobject_generateBullet();
-		WorldObject* wo = worldObjects.data[currentArrSize + i];
-		Bullet *genBullet = (Bullet *)wo->data;
-		bullets[i] = genBullet;
-	}
-	
-	// gamemaster_setupNodes(entities, entityCount);
-	
-	// bullet_initBulletCache();
-	
-	
-	char* GROUND_PATH = "../res/images/ground2.png";
-	
-	Mesh ground  = createTerrain(GROUND_PATH, 200, 50);
-	
-    // Load basic lighting shader
-    Shader shader = LoadShader(TextFormat("../res/shaders/lighting.vs"), TextFormat("../res/shaders/lighting.fs"));
-	bool valid = IsShaderValid(shader);
-	
-	if(!valid){
-		printf("ruh roh raggy");
-		exit(1);
-	}
-	
-    // Get some required shader locations
-    shader.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(shader, "viewPos");
-    // NOTE: "matModel" location name is automatically assigned on shader loading, 
-    // no need to get the location again if using that uniform name
-    shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(shader, "matModel");
+    lightDirLoc = GetShaderLocation(terrainShader, "lightDir");
+    lightColorLoc = GetShaderLocation(terrainShader, "lightColor");
+    viewPosLoc = GetShaderLocation(terrainShader, "viewPos");
+    ambientLoc = GetShaderLocation(terrainShader, "ambientStrength");
     
-    // Ambient light level (some basic lighting)
+    float ambientStrength = 0.2f; 
+    SetShaderValue(terrainShader, ambientLoc, &ambientStrength, SHADER_UNIFORM_FLOAT);
+}
 
-	
-    // int ambientLoc = GetShaderLocation(shader, "ambient");
-    // SetShaderValue(shader, ambientLoc, (float[4]){ 0,0,0, 1.0f }, SHADER_UNIFORM_VEC4);
 
-    // Light lights[4] = { 0 };
-    // lights[0] = CreateLight(LIGHT_POINT, (Vector3){ -2, 5, -2 }, Vector3Zero(), WHITE, shader);
-    // lights[1] = CreateLight(LIGHT_POINT, (Vector3){ 2, 5, 2 }, Vector3Zero(), RED, shader);
-    // lights[2] = CreateLight(LIGHT_POINT, (Vector3){ -2, 5, 2 }, Vector3Zero(), GREEN, shader);
-    // lights[3] = CreateLight(LIGHT_POINT, (Vector3){ 2, 5, -2 }, Vector3Zero(), BLUE, shader);
-	
-	
-	int ambientLoc = GetShaderLocation(shader, "ambientColor");
-	int lightDirLoc = GetShaderLocation(shader, "lightDir");
-	int lightColorLoc = GetShaderLocation(shader, "lightColor");
-	
-    float lPower = 0.3;
-	Vector3 ambientColor = { 1,1,1 }; // Example ambient color
-	Vector3 lightDir = { 0.707, -0.707, 0.0}; // Example light direction (down)
-	Vector3 lightColor = {lPower, lPower, lPower}; // Example light color (white)
-
-	SetShaderValue(shader, ambientLoc, &ambientColor, SHADER_UNIFORM_VEC3);
-	SetShaderValue(shader, lightDirLoc, &lightDir, SHADER_UNIFORM_VEC3);
-	SetShaderValue(shader, lightColorLoc, &lightColor, SHADER_UNIFORM_VEC3);
-
-	
-	for(int i = 0; i < worldObjects.count; i++){
-		WorldObject *currentWorldObject = (WorldObject *)worldObjects.data[i];
-		if(currentWorldObject->type == OBJECT_ENTITY){
-			Entity *entityData = (Entity *)currentWorldObject->data;			
-			entity_updateEntityShader(entityData, shader);
-		}
-	}
-	
-	
-	Model gModel = LoadModelFromMesh(ground);
-	
-	gModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = LoadTexture("../res/textures/gras.jpg"); // Set map diffuse texture
-	gModel.materials[0].shader = shader;
-
-	
-    // Material groundMat =  LoadMaterialDefault();  
-	// Texture2D texture = LoadTexture("../res/textures/grass.png"); // Load model texture
-	// SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);
-	// groundMat.maps[0].texture = texture;
-	
-	InitAudioDevice();
-	Wave gunFile = LoadWave("../res/audio/shot.wav");
-	Sound  gunSound = LoadSoundFromWave(gunFile);
-	
-	
-	int moveFrame = 0;
-	int shootPlayerFrame = 0;
-	
-	
-	
-	Model gon = LoadModel("../res/models/gon.m3d");
-	for(unsigned int i = 0; i < gon.materialCount; i++){
-		gon.materials[i].shader = shader;
-	}
+void SetupEntities() {
     
-	
-	Model DEBUG_CUBE = LoadModel("../res/models/cubie.m3d");
-	for(unsigned int i = 0; i < DEBUG_CUBE.materialCount; i++){
-		DEBUG_CUBE.materials[i].shader = shader;
-	}
-	
-	Model ashaBod = LoadModel("../res/models/ashabod.m3d");
-	 Texture2D tt = LoadTexture("../res/models/bodee.png");
-     ashaBod.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = tt;  
-     
-     
-	Model ashaHar = LoadModel("../res/models/ashahar.m3d");
-     
-     
-	
-	float* vertTest = gModel.meshes[0].vertices;
-	
-	int vertIndex = 0;
-	int vertFrame = 0;
-	
-	
-    Image groundMap = LoadImage(GROUND_PATH);
-	MAP_WIDTH = groundMap.width;
-	MAP_HEIGHT = groundMap.height;
-	pixels = LoadImageColors(groundMap);
-	
-	int PLAYER_INDEX = 0;
-	
-	Texture2D scope = LoadTexture("../res/images/snaypur.png"); // Load model texture
-	bool renderScope = false;
-
-    //rlDisableBackfaceCulling();
-    // Main game loop
-    while (!WindowShouldClose())        // Detect window close button or ESC key
-    {
-
-	float mouseSensitivity = SENSITIVITY;
-
-	if(IsMouseButtonDown(MOUSE_BUTTON_RIGHT)){
-		mouseSensitivity = AIM_SENSITIVITY;
-	}
-
-	Vector2 mousePositionDelta = GetMouseDelta();
-	CameraYaw(&camera, -mousePositionDelta.x*mouseSensitivity, false);
-	CameraPitch(&camera, -mousePositionDelta.y*mouseSensitivity, true,false, false);
-
-        float speed = PLAYER_SPEED;
-        if(IsKeyDown(KEY_LEFT_SHIFT)){
-        	speed = PLAYER_SPRINT_SPEED;
-        }
-
-		if(IsKeyDown(KEY_Q)){
-		camera.position.y+=0.5f;
-		}
-		if(IsKeyDown(KEY_E)){
-			camera.position.y-=0.5f;
-		}
-		if(IsKeyDown(KEY_W)){
-			CameraMoveForward(&camera, speed, false);	  
-		}
-		if(IsKeyDown(KEY_A)){
-		    CameraMoveRight(&camera, -speed, false);		
-		}
-		if(IsKeyDown(KEY_S)){
-			CameraMoveForward(&camera, -speed, false);
-		}
-		if(IsKeyDown(KEY_D)){
-		    CameraMoveRight(&camera, speed, false);
-		}
-	   // if(IsKeyPressed(KEY_ONE)){
-		   // gamemaster_moveTest(entities, 0, entities[entityCount-1].position);
-	   // }
-	   // if(IsKeyPressed(KEY_TWO)){
-		   // gamemaster_moveTest(entities, 1, entities[entityCount-1].position);
-	   // }
-	   
-		float newDist = yPointXZTest((Vector3){200,50,200},camera.position.x, camera.position.z)+3.0f;
-	   CameraMoveUp(&camera,newDist - camera.position.y);
-	   moveFrame++;
-	   if(moveFrame > 30){
-		   moveFrame = 0;
-			// bullet_fireBullet(entities[0].position, (Vector3){sin(rotate*(M_PI/180)),0,cos(rotate*(M_PI/180))},1.0f,0);
-			
-			
-			Vector3 qVec = (Vector3){(float)GetRandomValue(-50, 50),10.0f,(float)GetRandomValue(-50, 50)};
-			// entity_queryBox(&entities[0],qVec);
-		   // path_manager_moveGroup(entities, 5);
-	   }
-//        UpdateCamera(&camera, cameraMode);                  // Update camera
-
-	// 	WorldObject *wo = (WorldObject *)worldObjects.data[1];
-	// 	Entity *e = (Entity *)wo->data;	
-	   // camera.position = e->position;
-	   // camera.position.y = e->position.y+3;
-
-	// 	WorldObject *wo2 = (WorldObject *)worldObjects.data[2];
-	// 	Entity *e2 = (Entity *)wo2->data;
-
-	   // camera.target = Vector3Add(e->position, (Vector3){4,4,0});
-
-		BeginDrawing();
-		ClearBackground(SKYBLUE);
-//		ClearBackground(BLACK);
-		BeginMode3D(camera);
-		
-		DrawModel(ashaBod, (Vector3){0,2,0}, 2.0f, WHITE);
-		DrawModel(ashaHar, (Vector3){0,1.8,0}, 2.0f, WHITE);
-		
-		// BeginShaderMode(shader);
-
-		
-		// entities[2].model.bindPose[6].rotation
-		// DrawLine3D((Vector3){0,0,0}, entities[0].anims[entities[0].animIndex].framePoses[entities[0].animFrame][6].translation, RED);
-		// entities[PLAYER_INDEX].position = Vector3Add(camera.position,(Vector3){0,-1.3,0});
-		
-		// Vector3 ang = GetCameraForward(&camera);
-		// entities[PLAYER_INDEX].rotation = atan2f(ang.x,ang.z) - M_PI/2;
-		
-		
-		// for (unsigned int i = 0; i < entityCount; i++){
-			// entity_updateEntity(&entities[i]);
-				
-			// for (unsigned int j = 0; j < bulletCacheAmount; j++){
-				// if(!bullets[j].enabled){
-					// continue;
-				// }
-				
-				// bullet_updateBullet(&bullets[j]);
-				// RayCollision hit = GetRayCollisionBox(bullets[j].ray, entities[i].aabb);
-			
-				// if(entities[i].id != bullets[j].id && entities[i].alive && hit.hit && hit.distance <= bullets[j].velocity){
-					// entities[i].alive = false;
-					// entities[i].animFrame = 0;
-					// bullets[j].enabled = false;
-					// bullets[j].velocity = 0.0f;
-				// }
-			// }			
-			// if(CheckCollisionBoxes(testaabb, entities[i].aabb) && entities[i].alive){
-				// entity_setEntityTarget(&entities[0], entities[i].position);
-			// }
-		
-		
-		for(int i = 0; i < worldObjects.count; i++){
-			
-			WorldObject *currentWorldObject = (WorldObject *)worldObjects.data[i];
-			
-//			DrawBoundingBox(currentWorldObject->aabb, RED);	
-			
-	
-		
-			if(currentWorldObject->type == OBJECT_ENTITY){
-				Entity *entityData = (Entity *)currentWorldObject->data;	
-				worldobject_updateAABB_entity(&currentWorldObject->aabb, entityData);
-				if(i == PLAYER_INDEX){
-					entityData->position = Vector3Add(camera.position,(Vector3){0,-1.3,0});
-					Vector3 ang = GetCameraForward(&camera);
-					entityData->rotation = atan2f(ang.x,ang.z) - M_PI/2;
-				}
-
-				entity_updateEntity(entityData);
-				//DrawModelEx(entityData->model, (Vector3){0,0,0}, (Vector3){0,1.0f,0},0,(Vector3){1.0,1.0f,1.0f},WHITE);
-			}
-			if(currentWorldObject->type == OBJECT_BULLET){
-				
-				Bullet *bulletData = (Bullet *)currentWorldObject->data;
-				worldobject_updateAABB_bullet(&currentWorldObject->aabb, bulletData);
-				DrawSphere(Vector3Add(bulletData->ray.position, Vector3Scale(bulletData->ray.direction, bulletData->velocity)),0.3f,RED);
-				if(!bulletData->enabled){
-					continue;
-				}
-				
-				
-				//check terrain collision
-				
-				//if disnabled, continue
-				// RayCollision rcol = GetRayCollisionMesh(bulletData->ray, gModel.meshes[0],gModel.transform);
-				
-				bool terrainHit = terrain_terrainPointCollide(pixels, bulletData);
-				// if(rcol.hit && rcol.distance <= bulletData->velocity){
-				if(false && terrainHit){
-					bulletData->enabled =false;	
-					continue;
-				}
-				
-				
-				for (int j = 0; j < worldObjects.count; j++) {
-					WorldObject *wo2 = (WorldObject *)worldObjects.data[j];
-
-					// Ensure we're checking against an alive entity and not the bullet itself
-					if (wo2->type == OBJECT_ENTITY) {
-						Entity* entity = (Entity *)wo2->data;
-
-						// Perform AABB collision check
-						if (!entity->player && entity->alive && CheckCollisionBoxes(currentWorldObject->aabb, wo2->aabb)) {
-							// Collision detected!
-							
-							RayCollision hit = GetRayCollisionBox(bulletData->ray, wo2->aabb);
-						
-							if(hit.hit){
-								bulletData->enabled =false;	
-								entity->alive = false;
-								entity_switchAnimation(entity, 0);
-							}
-							
-
-							// TraceLog(LOG_INFO, "Bullet %d hit Entity %d", bullet->id, entity->id);
-
-							// Handle the collision:
-							// entity->alive = false; // Example: mark entity as dead
-							// bullet->enabled = false; // Example: disable the bullet
+    Texture modelTex = LoadTexture("../res/models/person/guyTex.png"); // Set map diffuse texture
 
 
-							// You might want to add more specific collision handling here,
-							// like applying damage, triggering effects, etc.
-
-							// Optionally, break out of the inner loop since the bullet hit something
-						}
-					}
-				}
-				bullet_updateBullet(bulletData);
-				
-//				DrawLine3D(bulletData->ray.position, Vector3Add(bulletData->ray.position, Vector3Scale(bulletData->ray.direction, bulletData->velocity)), YELLOW);
-
-
-				// bulletData->ray.position = Vector3Add(bulletData->ray.position,Vector3Add(Vector3Scale(bulletData->ray.direction,bulletData->velocity),(Vector3){0,-.001,0}));
-			}
-		}
-		
-		
-		DrawModel(gModel, (Vector3){0,0,0}, 1.0f, WHITE);
-		// 	DrawModelWires(gModel, (Vector3){0,0,0}, 1.0f, WHITE);
-
-		if(IsMouseButtonDown(MOUSE_BUTTON_LEFT)){
-			shootPlayerFrame++;
-			if(shootPlayerFrame >5){
-				shootPlayerFrame = 0;
-				
-				//i want values .9 -> 1.1
-				float ranV = (GetRandomValue(95, 105) / 100.0f);
-				printf("ranV:%f\n",ranV);
-				SetSoundPitch(gunSound, ranV);
-				// SetSoundPitch(gunSound, 0.03f);
-
-				PlaySound(gunSound);  
-				
-				WorldObject *currentWorldObject = (WorldObject *)worldObjects.data[PLAYER_INDEX];
-				Entity *entityData = (Entity *)currentWorldObject->data;
-				
-				Vector3 pos = entityData->anims[entityData->animIndex].framePoses[entityData->animFrame][8].translation;
-				pos = Vector3Transform(pos,entityData->model.transform);
-				// Vector3 pos2 = (Vector3){0,0,0};
-				// printf("pos: {%f, %f, %f}\n",pos.x, pos.y, pos.z);
-				
-				bullet_fireBullet(camera.position,GetCameraForward(&camera), 30.0f, 0);	
-			}
-		}
-		if(IsMouseButtonDown(MOUSE_BUTTON_RIGHT)){
-			renderScope = true;
-			camera.fovy = 5.0f;
-		}else{
-			renderScope = false;
-			camera.fovy = 60.0f;
-		}
-		// DrawBoundingBox(testaabb, RED);	
-		DrawModel(gon, (Vector3){0,2,0}, 1.0f, WHITE);
-		DrawModel(DEBUG_CUBE,(Vector3){5,0,5}, 1.0f, WHITE);
-		EndShaderMode();
-		EndMode3D();
-
-		if(renderScope){
-			DrawTexture(scope,0,0, WHITE);
-		}
+    Model model = LoadModel("../res/models/person/disgiuy.m3d");
+    for(int i = 0; i < model.materialCount; i++){
+            
+        model.materials[i].maps[MATERIAL_MAP_DIFFUSE].texture = modelTex;
+        model.materials[i].shader = terrainShader;        
+    }
+    //model.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = modelTex;
+    //model.materials[0].shader = terrainShader;        
+    int animsCount = 2;
+    ModelAnimation* anim = LoadModelAnimations("../res/models/person/disgiuy.m3d", &animsCount);
 
 
-		DrawRectangle(GetScreenWidth()/2-2,GetScreenHeight()/2-2,4,4, BLACK);
+    
+    EntityId cube2 = create_entity();
+    attach_transform(cube2, 
+        (Vector3){0,0,0}, // position
+        (Vector3){0.0f, 1.0f, 0.0f}, // rotationAxis (Y-axis)
+        0.0f,                         // rotationAngle (0 degrees)
+        (Vector3){1,1,1}); // scale
+    attach_render(cube2, model);
+    attach_animations(cube2, anim);
+    //attach_soldier(cube2);
+    attach_player_tag(cube2);
+    
+    
+    
+    EntityId playerCam = create_entity();
+       attach_transform(playerCam, 
+        (Vector3){0.0f, 1.8f, 0.0f}, // Initial position (head height)
+        (Vector3){0.0f, 1.0f, 0.0f}, // Rotation axis
+        0.0f, 
+        (Vector3){1.0f, 1.0f, 1.0f});
+    attach_camera(playerCam, 70.0f, 0.0f, 0.0f, true);
+    SetActiveCamera(playerCam); // <-- Call the setter to initialize the active ID
+    attach_parent(playerCam, cube2, (Vector3){0.0f, 1.5f, 0.0f});
+    
+    
+    for(int i = 0; i < 30; i++){
+        //Model model2 = LoadModel("../res/models/person/disgiuy.m3d");
+        //model2.materials[1].maps[MATERIAL_MAP_DIFFUSE].texture = modelTex;
+                
+        EntityId e = create_entity();
+        
+        attach_transform(e, 
+            (Vector3){(0.0f), 0.0f, 0.0f}, // position
+            (Vector3){0.0f, 1.0f, 0.0f}, // rotationAxis (Y-axis)
+            0.0f,                         // rotationAngle (0 degrees)
+            (Vector3){1.0f, 1.0f, 1.0f}); // scale
+        attach_render(e, model);
+        attach_animations(e, anim);
+        attach_soldier(e);
+    }
+}
 
-		// Draw info boxes
-		DrawRectangle(5, 5, 330, 100, Fade(SKYBLUE, 0.5f));
-		DrawRectangleLines(5, 5, 330, 100, BLUE);
+Matrix* BakeAnimationFrames(Model model, ModelAnimation anim, int* outMatrixCount) {
+    int frameCount = anim.frameCount;
+    int boneCount = anim.boneCount;
+    *outMatrixCount = frameCount * boneCount;
 
-		DrawText("Camera controls:", 15, 15, 10, BLACK);
-		DrawText("- Move keys: W, A, S, D, Space, Left-Ctrl", 15, 30, 10, BLACK);
-		DrawText("- Look around: arrow keys or mouse", 15, 45, 10, BLACK);
-		DrawText("- Camera mode keys: 1, 2, 3, 4", 15, 60, 10, BLACK);
-		DrawText("- Zoom keys: num-plus, num-minus or mouse scroll", 15, 75, 10, BLACK);
-		DrawText("- Camera projection key: P", 15, 90, 10, BLACK);
+    Matrix* bakedMatrices = (Matrix*)RL_MALLOC(frameCount * boneCount * sizeof(Matrix));
+    Matrix* worldTransforms = (Matrix*)RL_MALLOC(boneCount * sizeof(Matrix));
+    Matrix* globalBindPose = (Matrix*)RL_MALLOC(boneCount * sizeof(Matrix));
 
-		DrawRectangle(600, 5, 195, 100, Fade(SKYBLUE, 0.5f));
-		DrawRectangleLines(600, 5, 195, 100, BLUE);
+    // --- STEP 1: Calculate Global Bind Pose Matrices ---
+    // We must do this because invBindPose needs to be the inverse of the GLOBAL bind pose
+    for (int i = 0; i < boneCount; i++) {
+        Matrix localBind = QuaternionToMatrix(model.bindPose[i].rotation);
+        localBind.m12 = model.bindPose[i].translation.x;
+        localBind.m13 = model.bindPose[i].translation.y;
+        localBind.m14 = model.bindPose[i].translation.z;
 
-		DrawText("Camera status:", 610, 15, 10, BLACK);
-		DrawText(TextFormat("- Mode: %s", (cameraMode == CAMERA_FREE) ? "FREE" :
-										  (cameraMode == CAMERA_FIRST_PERSON) ? "FIRST_PERSON" :
-										  (cameraMode == CAMERA_THIRD_PERSON) ? "THIRD_PERSON" :
-										  (cameraMode == CAMERA_ORBITAL) ? "ORBITAL" : "CUSTOM"), 610, 30, 10, BLACK);
-		DrawText(TextFormat("- Projection: %s", (camera.projection == CAMERA_PERSPECTIVE) ? "PERSPECTIVE" :
-												(camera.projection == CAMERA_ORTHOGRAPHIC) ? "ORTHOGRAPHIC" : "CUSTOM"), 610, 45, 10, BLACK);
-		DrawText(TextFormat("- Position: (%06.3f, %06.3f, %06.3f)", camera.position.x, camera.position.y, camera.position.z), 610, 60, 10, BLACK);
-		DrawText(TextFormat("- Target: (%06.3f, %06.3f, %06.3f)", camera.target.x, camera.target.y, camera.target.z), 610, 75, 10, BLACK);
-		DrawText(TextFormat("- Up: (%06.3f, %06.3f, %06.3f)", camera.up.x, camera.up.y, camera.up.z), 610, 90, 10, BLACK);
-
-		
-		DrawFPS(1000, 10); 
-
-        EndDrawing();
-        //----------------------------------------------------------------------------------
+        int parentIndex = model.bones[i].parent;
+        if (parentIndex == -1) globalBindPose[i] = localBind;
+        //else globalBindPose[i] = MatrixMultiply(localBind, globalBindPose[parentIndex]);
+        else globalBindPose[i] = MatrixMultiply(globalBindPose[parentIndex], localBind);
+        
+        
     }
 
-    // De-Initialization
-    //--------------------------------------------------------------------------------------
-    CloseWindow();        // Close window and OpenGL context
-    //--------------------------------------------------------------------------------------
+    // --- STEP 2: Bake the Animation Frames ---
+    for (int i = 0; i < frameCount; i++) {
+        for (int j = 0; j < boneCount; j++) {
+            
+            
+     
+            
+            // Local animated transform
+            Matrix localMat = QuaternionToMatrix(anim.framePoses[i][j].rotation);
+            localMat.m12 = anim.framePoses[i][j].translation.x;
+            localMat.m13 = anim.framePoses[i][j].translation.y;
+            localMat.m14 = anim.framePoses[i][j].translation.z;
 
+            // Global animated transform
+            int parentIndex = anim.bones[j].parent;
+            if (parentIndex == -1) worldTransforms[j] = localMat;
+            //else worldTransforms[j] = MatrixMultiply(localMat, worldTransforms[parentIndex]);
+            else worldTransforms[j] = MatrixMultiply(worldTransforms[parentIndex], localMat);
+            
+            
+
+            // Final Matrix = Inverse(GlobalBindPose) * GlobalAnimatedPose
+            Matrix invBindPose = MatrixInvert(globalBindPose[j]);
+            
+            // RAYLIB NOTE: MatrixMultiply order matters! 
+            // Usually: BoneSpaceTransform = InvBind * WorldAnim
+            bakedMatrices[i * boneCount + j] = MatrixMultiply(invBindPose, worldTransforms[j]);
+            //bakedMatrices[i * boneCount + j] = MatrixMultiply(worldTransforms[j], invBindPose);
+                               // Inside BakeAnimationFrames loop, pick a bone index (e.g., 5)
+            if (j == 5 && i == 0) { // Bone 5, Frame 0
+                printf("Bone 5 Global Bind Matrix (m12, m13, m14): %.2f, %.2f, %.2f\n", 
+                       globalBindPose[j].m12, globalBindPose[j].m13, globalBindPose[j].m14);
+                printf("Bone 5 Baked Matrix Row 0: %.2f, %.2f, %.2f, %.2f\n", 
+                       bakedMatrices[j].m0, bakedMatrices[j].m4, bakedMatrices[j].m8, bakedMatrices[j].m12);
+                       
+            }
+        }
+    }
+
+    RL_FREE(worldTransforms);
+    RL_FREE(globalBindPose);
+    return bakedMatrices;
+}
+
+Texture2D CreateAnimationTexture(Matrix *bakedMatrices, int boneCount, int frameCount) {
+    // Each matrix is 4 pixels wide (each pixel is one row of the matrix)
+    int width = boneCount * 4; 
+    int height = frameCount;
+
+    Image animImage = {
+        .data = bakedMatrices,      // Your Matrix* array
+        .width = width,
+        .height = height,
+        .mipmaps = 1,
+        .format = PIXELFORMAT_UNCOMPRESSED_R32G32B32A32
+    };
+    
+    //bool ex = ExportImage(animImage, "imgexport.png");
+    
+    //printf("EXPORT WORKIE %i\n",ex);
+    
+    Texture2D animTexture = LoadTextureFromImage(animImage);
+    
+    // CRITICAL: We need Nearest filtering. 
+    // Bilinear filtering will "blend" bones together and ruin the math.
+    SetTextureFilter(animTexture, TEXTURE_FILTER_POINT);
+    SetTextureWrap(animTexture, TEXTURE_WRAP_CLAMP);
+
+    return animTexture;
+}
+
+
+int tframe = 0;
+
+int main(void) {
+    time_t time1, time2;
+    time(&time1);
+    init_game_world();
+    
+    const int screenWidth = 1920;
+    const int screenHeight = 1000;
+    
+    InitWindow(screenWidth, screenHeight, "ECS Raylib Soldier Example");
+    double sTime = GetTime();
+    SetTargetFPS(60);
+    SetupShaders();
+    SetupEntities();
+    TerrainSetupSystem(terrainShader);
+    DisableCursor();
+
+
+    
+    //-----
+    
+    Model model = LoadModel("../res/models/person/disgiuy.m3d");
+    
+    for (int i = 0; i < 5; i++) { // Check first 5 vertices
+    int idx = i * 4;
+    float sum = model.meshes[0].boneWeights[idx] + 
+                model.meshes[0].boneWeights[idx+1] + 
+                model.meshes[0].boneWeights[idx+2] + 
+                model.meshes[0].boneWeights[idx+3];
+                
+    printf("Vertex %d: IDs(%d, %d, %d, %d) Weights(%.2f, %.2f, %.2f, %.2f) Sum: %.2f\n", 
+        i, 
+        model.meshes[0].boneIds[idx], model.meshes[0].boneIds[idx+1],
+        model.meshes[0].boneIds[idx+2], model.meshes[0].boneIds[idx+3],
+        model.meshes[0].boneWeights[idx], model.meshes[0].boneWeights[idx+1],
+        model.meshes[0].boneWeights[idx+2], model.meshes[0].boneWeights[idx+3],
+        sum);
+}
+    
+    Texture modelTex = LoadTexture("../res/models/person/guyTex.png"); // Set map diffuse texture
+    for(int i = 0; i < model.materialCount; i++){        
+        model.materials[i].maps[MATERIAL_MAP_DIFFUSE].texture = modelTex;
+    }
+
+    if (model.meshes[0].boneIds == NULL) {
+    printf("ERROR: model.meshes[0].boneIds is NULL. The file didn't load bone data!\n");
+}
+    int maxId = 0;
+    for (int i = 0; i < model.meshes[0].vertexCount * 4; i++) {
+        if(model.meshes[0].boneIds[i] == 255) continue;
+        if (model.meshes[0].boneIds[i] > maxId) maxId = (int)model.meshes[0].boneIds[i];
+    }
+    printf("MAX BONE ID FOUND IN MESH: %i\n", maxId);
+    
+    
+    int animsCount = 2;
+    ModelAnimation* anim = LoadModelAnimations("../res/models/person/disgiuy.m3d", &animsCount);
+
+    int outM;
+    Matrix* bakedMatrices = BakeAnimationFrames(model, anim[0], &outM);
+    Texture2D bakedTex = CreateAnimationTexture(bakedMatrices, anim->boneCount, anim->frameCount);
+    printf("Texture Width: %i, Expected: %i\n", bakedTex.width, anim->boneCount * 4);
+    // After CreateAnimationTexture
+printf("Texture Info: Width %d (Expected %d), Height %d (Expected %d)\n", 
+       bakedTex.width, anim[0].boneCount * 4, 
+       bakedTex.height, anim[0].frameCount);
+
+    Shader animShader = LoadShader("../res/shaders/modelanim.vs", "../res/shaders/modelanim.fs");
+    animShader.locs[SHADER_LOC_VERTEX_POSITION] = GetShaderLocationAttrib(animShader, "vertexPos");
+animShader.locs[SHADER_LOC_VERTEX_TEXCOORD01] = GetShaderLocationAttrib(animShader, "vertexTexCoord");
+    model.materials[0].shader = animShader;
+
+    // 1. Get locations
+    int boneIdsLoc = GetShaderLocationAttrib(animShader, "vertexBoneIds");
+    int boneWeightsLoc = GetShaderLocationAttrib(animShader, "vertexBoneWeights");
+
+    printf("Shader Location IDs: %i, %i\n", boneIdsLoc, boneWeightsLoc);
+    
+    // In main() after SetupShaders
+printf("Location - Position: %d\n", GetShaderLocationAttrib(animShader, "vertexPos"));
+printf("Location - BoneIds: %d (VBO ID: %u)\n", boneIdsLoc, model.meshes[0].vboId[boneIdsLoc]);
+printf("Location - BoneWeights: %d (VBO ID: %u)\n", boneWeightsLoc, model.meshes[0].vboId[boneWeightsLoc]);
+
+// Bone IDs
+if (boneIdsLoc != -1 && model.meshes[0].boneIds != NULL) {
+    model.meshes[0].vboId[boneIdsLoc] = rlLoadVertexBuffer(
+        model.meshes[0].boneIds, 
+        model.meshes[0].vertexCount * 4 * sizeof(float), 
+        false
+    );
+    rlEnableVertexAttribute(boneIdsLoc);
+    // Use 0x1401 (GL_UNSIGNED_BYTE). 
+    // IMPORTANT: Use rlSetVertexAttributeDefault or ensure index is correct
+    rlSetVertexAttribute(boneIdsLoc, 4, 0x1401, false, 0, 0); 
+}
+
+// Bone Weights
+if (boneWeightsLoc != -1 && model.meshes[0].boneWeights != NULL) {
+    model.meshes[0].vboId[boneWeightsLoc] = rlLoadVertexBuffer(
+        model.meshes[0].boneWeights, 
+        model.meshes[0].vertexCount * 4 * sizeof(float), 
+        false
+    );
+    rlEnableVertexAttribute(boneWeightsLoc);
+    rlSetVertexAttribute(boneWeightsLoc, 4, 0x1406, false, 0, 0); // 0x1406 is GL_FLOAT
+}
+    
+
+    // 3. DONE. Do NOT touch the vboId array after this point.
+    printf("Final Bone VBO: %i\n", model.meshes[0].vboId[boneIdsLoc]);
+    
+    int MAX_INSTANCES = 100;
+    // 6. Setup Instances
+    Matrix renderTransforms[MAX_INSTANCES];
+    float instanceFrames[MAX_INSTANCES];
+    for (int i = 0; i < MAX_INSTANCES; i++) {
+        instanceFrames[i] = (float)GetRandomValue(0, anim[0].frameCount - 1);
+        //instanceFrames[i] = 0;
+    }
+    
+    //-----
+
+
+    //rlDisableBackfaceCulling();
+
+
+
+    Texture grass = LoadTexture("../res/textures/grass.png");
+
+    while (!WindowShouldClose()) {
+        
+        float deltaTime = GetFrameTime();
+        
+        PlayerInputSystem(deltaTime);
+        temporaryAIMoveSystem();
+        ParentingSystem();
+        CameraSystem(deltaTime); 
+        ViewDistanceManagerSystem(grass,terrainShader);
+        tframe++;
+        if(tframe > 40){
+            tframe = 0;
+            }
+            
+            for (int i = 0; i < MAX_INSTANCES; i++) {
+                instanceFrames[i] += GetFrameTime() * 24.0f; // Playback speed
+                if (instanceFrames[i] >= anim[0].frameCount) instanceFrames[i] = 0;
+
+                renderTransforms[i] = MatrixTranslate((i % 25) * 2.0f, 0, (i / 25) * 2.0f);
+                renderTransforms[i].m15 = instanceFrames[i]; // Store frame in m15
+                //renderTransforms[i].m15 = 0.0f;
+            }
+            
+            
+        BeginDrawing();
+            ClearBackground(BLACK);
+            BeginMode3D(cameras[GetActiveCameraId()].data); 
+                //DrawPlane((Vector3){0,-1,0},(Vector2){2000,2000}, GREEN);                                      // Draw a plane XZ
+                BeginShaderMode(animShader);
+
+                // --- Step A: Setup the Animation Texture ---
+                int animTexLoc = GetShaderLocation(animShader, "uAnimTexture");
+                int slotIndex = 1; // We choose slot 1
+                SetShaderValue(animShader, animTexLoc, &slotIndex, SHADER_UNIFORM_INT);
+
+                rlActiveTextureSlot(1);      // Switch to slot 1
+                rlEnableTexture(bakedTex.id); // Bind our bone data texture
+
+                // --- Step B: Draw ---
+                // Raylib will automatically bind model.materials[0].maps[0].texture to slot 0
+                DrawMeshInstanced(model.meshes[0], model.materials[0], renderTransforms, MAX_INSTANCES);
+                // --- Step C: Cleanup ---
+                rlDisableTexture();    // Unbind slot 1
+                rlActiveTextureSlot(0); // Switch back to default slot 0
+
+                EndShaderMode();
+            
+            UpdateLightingUniforms(cameras[0].data, terrainShader, lightDirLoc, lightColorLoc,viewPosLoc);
+            //AnimationSystem();
+            DrawSystem();    
+            DrawLine3D((Vector3){0,0,0},(Vector3){1000,0,0}, RED);
+            DrawLine3D((Vector3){0,0,0},(Vector3){0,1000,0}, GREEN);
+            DrawLine3D((Vector3){0,0,0},(Vector3){0,0,1000}, BLUE);
+            EndMode3D();
+            //DrawTexture(bakedTex, 50,50, WHITE);
+            DrawTextureEx(bakedTex, (Vector2){50,50},0.0f,10.0f, WHITE);
+            DrawFPS(10, 10);
+        EndDrawing();
+    }
+    CloseWindow();
     return 0;
 }
