@@ -20,21 +20,18 @@ out vec2 fragTexCoord;
 out vec4 fragColor;
 
 mat4 getBoneMatrix(float boneId, float frame) {
-
     int x = int(boneId) * 4;
     int y = int(frame);
     
-    // Fetch the 4 pixels (rows)
-    vec4 r0 = texelFetch(uAnimTexture, ivec2(x, y), 0);
-    vec4 r1 = texelFetch(uAnimTexture, ivec2(x + 1, y), 0);
-    vec4 r2 = texelFetch(uAnimTexture, ivec2(x + 2, y), 0);
-    vec4 r3 = texelFetch(uAnimTexture, ivec2(x + 3, y), 0);
+    // Each pixel is actually a ROW based on Raylib's struct layout m0, m4, m8, m12 
+    vec4 row0 = texelFetch(uAnimTexture, ivec2(x, y), 0);
+    vec4 row1 = texelFetch(uAnimTexture, ivec2(x + 1, y), 0);
+    vec4 row2 = texelFetch(uAnimTexture, ivec2(x + 2, y), 0);
+    vec4 row3 = texelFetch(uAnimTexture, ivec2(x + 3, y), 0);
     
-    // Create the matrix. 
-    // If 'transpose' made it better but limbs are still shifted, 
-    // we need to verify the constructor order.
-    mat4 m = mat4(r0, r1, r2, r3); 
-    return transpose(m); 
+    // Construct by rows to keep translation in the right place
+    // mat4(col0, col1, col2, col3) is the constructor, so we transpose the result
+    return transpose(mat4(row0, row1, row2, row3)); 
 }
 
 void main() {
