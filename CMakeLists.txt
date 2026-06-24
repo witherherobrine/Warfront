@@ -7,14 +7,6 @@ project(Warfront)
 add_executable(${PROJECT_NAME} 
 	external/FastNoiseLite.h
 	src/main.c
-    src/game.h
-    src/components.h
-    src/systems.h
-    src/systems.c
-    src/entities.h
-    src/entities.c
-    src/utils.h
-    src/utils.c
 )
 
 target_link_libraries(${PROJECT_NAME} 
