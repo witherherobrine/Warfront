@@ -156,10 +156,10 @@ int main(void)
     }
     
     Shader instanceShader = LoadShader("../res/shaders/instancing.vs","../res/shaders/instancing.fs");
-    Model tree = LoadModel("../res/models/tree/scene.gltf");
-    for(int i = 0; i < tree.materialCount; i++){
-        tree.materials[i].shader = instanceShader;
-    }   
+    //Model tree = LoadModel("../res/models/tree/scene.gltf");
+    //for(int i = 0; i < tree.materialCount; i++){
+        //tree.materials[i].shader = instanceShader;
+    //}   
 
 
     int MAX_TREES = 300;
@@ -207,8 +207,8 @@ int main(void)
             }
                 
             DrawModel(ground, (Vector3){0,0,0},1.0f,WHITE);
-            DrawMeshInstanced(tree.meshes[0], tree.materials[1], treeTransforms, MAX_TREES);
-            DrawMeshInstanced(tree.meshes[1], tree.materials[2], treeTransforms, MAX_TREES);
+            //DrawMeshInstanced(tree.meshes[0], tree.materials[1], treeTransforms, MAX_TREES);
+            //DrawMeshInstanced(tree.meshes[1], tree.materials[2], treeTransforms, MAX_TREES);
             
             //for (int i = 0; i < MAX_TREES; i++) {
                 //DrawMesh(tree.meshes[0], tree.materials[1], treeTransforms[i]);
